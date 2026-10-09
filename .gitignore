@@ -18,6 +18,8 @@ Thumbs.db
 *.log
 .system_generated/
 *.tmp
+*.db
+*.sqlite3
 
 # Variables de entorno secretas
 .env

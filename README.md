@@ -72,6 +72,20 @@ La interfaz está inspirada en los monitores profesionales **Bloomberg Terminal*
 - **Motor Cuantitativo Automático (Offline)**: Genera instantáneamente el diagnóstico de cumplimiento, holgura, descomposición matemática de drivers y recomendaciones para la Mesa de Dinero sin necesidad de API keys.
 - **Conector a Copilot / OpenAI / Azure**: Con un solo clic (`✨ Generar Memo con Copilot`), la IA redacta un memorándum ejecutivo formal para la Alta Dirección.
 
+### 5. Arquitectura Empresarial de 4 Capas (SQL Server 2017 & Kimball)
+- **🔐 Capa 1: OLTP / Ledger Inmutable**: Contabilidad bancaria multi-leg con invariante $\sum \text{Debit} - \sum \text{Credit} = 0$, `DENY UPDATE/DELETE`, triggers defensivos `INSTEAD OF` y encadenamiento hash SHA-256 (`HASHBYTES`).
+- **⏳ Capa 2: Core Bitemporal / ODS**: Asserted Versioning framework combinando **System Transaction Time** (`SysStartTime`, `SysEndTime` nativos) con **Business Effective Time** (`ValidFrom`, `ValidTo`) para resolver auditorías CMF (C46 Provisiones / C55 Liquidez).
+- **📊 Capa 3: Data Warehouse Kimball**: Minidimensiones de riesgo (`dim_risk_band`), dimensión conformada (`dim_partner`), `dim_date` con role-playing views y tablas de hechos con **Clustered Columnstore Indexes (CCI)** particionadas mensualmente.
+- **🔄 Capa 4: Staging & Linaje ETL**: Registro de lotes (`stg.load_execution_log`), reconciliación nocturna Legacy vs Ledger y conmutación masiva zero-lock vía **Partition Switching**.
+- **📜 Scripts T-SQL de Producción (`sql/`)**:
+  - `00_init_database.sql`: Creación de base de datos con RCSI y 4 esquemas.
+  - `01_oltp_immutable_ledger.sql`: DDL de cabeceras/postings, triggers y procedimientos seguros.
+  - `02_stg_audit_lineage.sql`: Bitácora de ejecución, linaje y función de checksum SHA-256.
+  - `03_core_bitemporal_ods.sql`: Tablas temporal bitemporales con versionado nativo.
+  - `04_dwh_kimball_presentation.sql`: Esquema Kimball, minidimensiones, fechas y hechos con CCI.
+  - `05_regulatory_time_travel_audit.sql`: Consultas de auditoría retrospectiva CMF.
+  - `06_migration_and_partition_switching.sql`: Activación CDC, backfilling, partition switching y reconciliación.
+
 ---
 
 ## 🗄️ Cómo Conectar tus Tablas de SQL (Arquitectura de 4 DataFrames)

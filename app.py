@@ -51,6 +51,7 @@ from ai_analyst import (
     generate_heuristic_executive_analysis,
     call_llm_copilot_analysis
 )
+from components.core_architecture_view import render_core_architecture_page
 
 # Inyectar CSS personalizado
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -68,8 +69,8 @@ st.sidebar.caption("Supervisión de Liquidez y Balance Basilea III")
 
 # Selector de Indicador
 indicador_activo = st.sidebar.radio(
-    "Seleccionar Indicador:",
-    ["💧 LCR (Cobertura de Liquidez)", "🏦 NSFR (Fondeo Estable Neto)", "📊 Visión Consolidada ALM"],
+    "Seleccionar Indicador / Módulo:",
+    ["💧 LCR (Cobertura de Liquidez)", "🏦 NSFR (Fondeo Estable Neto)", "📊 Visión Consolidada ALM", "🏛️ Arquitectura Core & Auditoría Bitemporal"],
     index=0
 )
 
@@ -509,6 +510,9 @@ elif "Consolidada" in indicador_activo:
         st.markdown("#### 🏦 Ratio NSFR (Net Stable Funding Ratio)")
         render_kpi_cards(kpis_nsfr, "NSFR", "FED", "FER", granularidad)
         st.plotly_chart(plot_indicator_trend(df_nsfr_res, 'fecha', 'nsfr', 'NSFR', limite_normativo, limite_interno), width='stretch')
+
+elif "Arquitectura" in indicador_activo:
+    render_core_architecture_page()
 
 
 # Footer Corporativo

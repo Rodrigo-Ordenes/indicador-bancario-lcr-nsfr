@@ -1,0 +1,23 @@
+# Entornos virtuales
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs y temporales
+*.log
+.system_generated/
+*.tmp
+
+# Variables de entorno secretas
+.env

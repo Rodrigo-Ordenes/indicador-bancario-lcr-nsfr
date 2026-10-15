@@ -19,24 +19,30 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Panel de Liquidez · LCR / NSFR", page_icon="▪", layout="wide",
-                   initial_sidebar_state="expanded")
+st.set_page_config(page_title="Liquidez · LCR y NSFR", page_icon=":material/account_balance:", layout="wide",
+                   initial_sidebar_state="collapsed")
 
 import analytics as an  # noqa: E402
 import pdf_generator  # noqa: E402
 import report_store  # noqa: E402
 from components import charts  # noqa: E402
 from components.core_architecture_view import render_core_architecture_page  # noqa: E402
-from components.ui_cards import TAG, kpi_row, note, section, status_strip  # noqa: E402
+from components.ui_cards import TAG, brief, kpi_row, masthead, meters, note, section  # noqa: E402
 from data_loader import (get_data_source_label, load_lcr_detalle, load_lcr_historico,  # noqa: E402
                          load_nsfr_detalle, load_nsfr_historico)
-from styles import BBG_BLUE, BBG_MINT, BBG_ORANGE, BBG_RED, CUSTOM_CSS  # noqa: E402
+from styles import C_ALERT, C_BREACH, C_IND, C_NUM, C_DEN, C_OK, CUSTOM_CSS, SEVERITY  # noqa: E402
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-MODULES = ["1 · Panel LCR", "2 · Panel NSFR", "3 · Análisis transversal", "4 · Informe PDF",
-           "5 · Calidad y trazabilidad de datos"]
+MODULES = ["Panel LCR", "Panel NSFR", "Análisis transversal", "Informe PDF", "Calidad de datos"]
 GRANS = ["Diaria", "Semanal", "Mensual", "Anual"]
+GRAN_HELP = {
+    "Diaria": "Cierre de hoy y variación respecto del cierre de ayer.",
+    "Semanal": "Último cierre de cada semana (viernes) vs la semana anterior.",
+    "Mensual": "Último cierre de cada mes vs el mes anterior.",
+    "Anual": "Último cierre de cada año vs el año anterior.",
+}
+GRAN_PLURAL = {"Diaria": "diarios", "Semanal": "semanales", "Mensual": "mensuales", "Anual": "anuales"}
 SCENARIOS = ["Base", "Adverso", "Severo"]
 
 
@@ -63,50 +69,32 @@ dq_errors = dq_errors[dq_errors["Resultado"] == "ERROR"]
 dq_observed = int(((dq_lcr["Resultado"] == "OBSERVADO").sum() + (dq_nsfr["Resultado"] == "OBSERVADO").sum()))
 
 # =============================================================================
-# BARRA LATERAL
+# CABECERA, NAVEGACIÓN Y TITULAR DEL DÍA (visibles en todos los módulos)
 # =============================================================================
-st.sidebar.markdown("""<div class="sidebar-brand"><div class="sidebar-brand-title">ALM · LIQUIDEZ</div>
-<div class="sidebar-brand-sub">Reportería de Riesgo Financiero</div></div>""", unsafe_allow_html=True)
-st.sidebar.markdown('<div class="sidebar-section">Módulo</div>', unsafe_allow_html=True)
-modulo = st.sidebar.radio("Módulo", MODULES, label_visibility="collapsed")
+mast_slot = st.empty()            # la cabecera se completa cuando se conocen vista y calidad
 
-st.sidebar.markdown('<div class="sidebar-section">Vista temporal</div>', unsafe_allow_html=True)
-gran = st.sidebar.radio("Vista temporal", GRANS, horizontal=True, label_visibility="collapsed")
-st.sidebar.caption({
-    "Diaria": "Cierre de hoy y variación respecto del cierre de ayer.",
-    "Semanal": "Último cierre de cada semana (viernes) vs la semana anterior.",
-    "Mensual": "Último cierre de cada mes vs el mes anterior.",
-    "Anual": "Último cierre de cada año vs el año anterior.",
-}[gran] + " Los datos son cierres diarios: no existe movimiento intradía.")
-
-st.sidebar.markdown('<div class="sidebar-section">Umbrales</div>', unsafe_allow_html=True)
-with st.sidebar.expander("Límites regulatorios e internos", expanded=False):
+c_nav, c_view, c_umb = st.columns([5.2, 2.8, 1.1], vertical_alignment="bottom")
+modulo = c_nav.segmented_control("Módulo", MODULES, default=MODULES[0], required=True, key="modulo",
+                                 label_visibility="collapsed")
+gran = c_view.segmented_control(
+    "Vista temporal", GRANS, default="Diaria", required=True, key="gran", label_visibility="collapsed",
+    help="Los datos son cierres diarios: no existe movimiento intradía. " + " ".join(f"{g}: {t}" for g, t in GRAN_HELP.items()))
+with c_umb.popover("Umbrales", icon=":material/tune:", width="stretch"):
     st.markdown("**Regulatorio (fijo):** LCR y NSFR ≥ 100%.")
-    st.markdown("**Internos (política ALM):**")
+    st.caption("Internos (política ALM)")
     lcr_alerta = st.number_input("LCR · alerta interna (%)", value=120.0, step=1.0, min_value=100.0)
     lcr_apetito = st.number_input("LCR · apetito por riesgo (%)", value=150.0, step=1.0, min_value=lcr_alerta)
     nsfr_alerta = st.number_input("NSFR · alerta interna (%)", value=105.0, step=1.0, min_value=100.0)
 U_LCR = an.umbrales_lcr(100.0, lcr_alerta, lcr_apetito)
 U_NSFR = an.umbrales_nsfr(100.0, nsfr_alerta)
 
-st.sidebar.markdown('<div class="sidebar-section">Fuente y calidad</div>', unsafe_allow_html=True)
-dq_txt = ("Validación OK" if dq_errors.empty and dq_observed == 0 else
-          (f"{len(dq_errors)} controles con ERROR" if not dq_errors.empty else f"{dq_observed} controles observados"))
-dq_color = BBG_RED if not dq_errors.empty else (BBG_ORANGE if dq_observed else BBG_MINT)
-st.sidebar.markdown(f'<div class="sidebar-note">{get_data_source_label()}<br>'
-                    f'<span style="color:{dq_color}">■ Calidad de datos: {dq_txt}</span><br>'
-                    f'Cifras en MM$ (millones de CLP).</div>', unsafe_allow_html=True)
-
-# =============================================================================
-# ENCABEZADO Y FRANJA DE SITUACIÓN (visible en todos los módulos)
-# =============================================================================
 fecha_corte = pd.to_datetime(lcr_hist["fecha"]).max()
-st.markdown(f"""<div class="header-banner"><div>
-  <div class="header-eyebrow">Gerencia de Riesgo Financiero · Comité ALCO</div>
-  <div class="header-title">Panel de liquidez: LCR y NSFR</div>
-  <div class="header-subtitle">Basilea III (BCBS 238 / 295) · Normativa de liquidez CMF</div></div>
-  <div class="header-meta">Fecha de corte <b>{fecha_corte:%d-%m-%Y}</b><br>Vista <b>{gran}</b><br>
-  Generado <b>{datetime.now():%d-%m-%Y %H:%M}</b></div></div>""", unsafe_allow_html=True)
+dq_txt = ("Calidad de datos OK" if dq_errors.empty and dq_observed == 0 else
+          (f"{len(dq_errors)} controles con error" if not dq_errors.empty else
+           f"{dq_observed} {'control observado' if dq_observed == 1 else 'controles observados'}"))
+dq_color = C_BREACH if not dq_errors.empty else (C_ALERT if dq_observed else C_OK)
+with mast_slot.container():
+    masthead(fecha_corte, gran, get_data_source_label(), dq_txt, dq_color)
 
 if not dq_errors.empty:
     st.error("La validación de calidad de datos detectó errores; los indicadores no se calculan hasta corregirlos.")
@@ -117,7 +105,7 @@ closes_d_lcr = an.period_closes(lcr_hist, an.LCR, "Diaria")
 closes_d_nsfr = an.period_closes(nsfr_hist, an.NSFR, "Diaria")
 kd_lcr = an.kpi_snapshot(closes_d_lcr, an.LCR, U_LCR, "Diaria")
 kd_nsfr = an.kpi_snapshot(closes_d_nsfr, an.NSFR, U_NSFR, "Diaria")
-status_strip([{**kd_lcr, "codigo": "LCR"}, {**kd_nsfr, "codigo": "NSFR"}])
+brief([{**kd_lcr, "ind": an.LCR, "umbrales": U_LCR}, {**kd_nsfr, "ind": an.NSFR, "umbrales": U_NSFR}])
 
 
 # =============================================================================
@@ -138,7 +126,7 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
         note(f"<b>Umbrales.</b> {umb_txt}. El mínimo regulatorio es obligatorio; la alerta y el apetito son "
              "niveles internos de gestión.")
 
-        section("Evolución", f"{len(closes)} cierres {gran.lower()}es disponibles", "REAL")
+        section("Evolución", f"{len(closes)} cierres {GRAN_PLURAL[gran]} disponibles", "REAL")
         fmin, fmax = closes["fecha"].min().date(), closes["fecha"].max().date()
         default_from = max(fmin, fmax - timedelta(days=365)) if gran == "Diaria" else fmin
         rng = st.slider("Rango visualizado", min_value=fmin, max_value=fmax, value=(default_from, fmax),
@@ -194,13 +182,13 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
         bullets = "".join(f"<li><b>{r['subcategoria']}</b> ({r['categoria']}): {r['var_abs']:+,.0f} MM$ "
                           f"({r['var_pct']:+.1f}%), impacto {r['impacto_pp']:+.2f} pp.</li>" for _, r in top.iterrows())
         note(f"<b>{ind.codigo} {r_ant:.2f}% → {r_act:.2f}% ({r_act - r_ant:+.2f} pp).</b> Componentes que más explican "
-             f"el cambio:<ul style='margin:6px 0 0 0'>{bullets}</ul>", BBG_BLUE)
+             f"el cambio:<ul style='margin:6px 0 0 0'>{bullets}</ul>", C_IND)
         st.plotly_chart(charts.impact_chart(dec, "impacto_pp", "subcategoria",
                                             f"Principales componentes que explican el cambio del {ind.codigo} (pp)"),
                         width="stretch")
         st.caption("Impacto = cambio del indicador al actualizar sólo esa línea, manteniendo el resto en el cierre "
                    "anterior. En el LCR el recálculo reaplica los topes regulatorios.")
-        for comp, color in ((ind.num, BBG_MINT), (ind.den, BBG_RED)):
+        for comp in (ind.num, ind.den):
             d = dec[dec["componente"] == comp].copy()
             st.markdown(f"##### Detalle de {comp}")
             total = pd.DataFrame([{"categoria": "TOTAL", "subcategoria": "", "factor_ponderacion": np.nan,
@@ -223,7 +211,7 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
         if not adj.empty and (adj[["monto_ponderado_act", "monto_ponderado_ant"]].abs().sum().sum() > 0):
             note("<b>Ajustes por topes regulatorios aplicados:</b> " + "; ".join(
                 f"{r['subcategoria']}: {r['monto_ponderado_ant']:,.0f} → {r['monto_ponderado_act']:,.0f} MM$"
-                for _, r in adj.iterrows()), BBG_ORANGE)
+                for _, r in adj.iterrows()), C_ALERT)
         st.download_button(f"Descargar descomposición {ind.codigo} (CSV)", dec.to_csv(index=False).encode("utf-8"),
                            f"descomposicion_{ind.codigo}_{pd.Timestamp(f_act):%Y%m%d}.csv", "text/csv")
 
@@ -234,7 +222,7 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
         section("Pruebas de tensión", f"montos al cierre {last:%d-%m-%Y}", "SIM")
         note("Modifique el monto computable de cualquier componente (shock en %). El indicador se recalcula "
              "automáticamente con las mismas ponderaciones y topes del cálculo oficial. Los resultados son "
-             "<b>simulaciones</b>, no datos observados.", BBG_ORANGE)
+             "<b>simulaciones</b>, no datos observados.", C_ALERT)
         code = ind.codigo
         st.session_state.setdefault(f"ver_{code}", 0)
 
@@ -332,7 +320,7 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
         section("Proyecciones", "estimaciones estadísticas", "PROY")
         note("Las proyecciones son <b>estimaciones</b> basadas en el comportamiento histórico y en supuestos de "
              "tensión; no constituyen resultados ciertos. Las bandas muestran un intervalo aproximado del 95%.",
-             BBG_BLUE)
+             C_IND)
         c1, c2 = st.columns([1, 2])
         horizonte = c1.selectbox("Horizonte (días)", [30, 60, 90, 180], index=2, key=f"hz_{ind.codigo}")
         escs = c2.multiselect("Escenarios", SCENARIOS, default=SCENARIOS, key=f"pe_{ind.codigo}")
@@ -362,7 +350,7 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
         import plotly.graph_objects as go
         fig = go.Figure()
         hh = hist.tail(180)
-        for col, f, name, color in ((ind.num_col, fn, ind.num, BBG_MINT), (ind.den_col, fd, ind.den, BBG_RED)):
+        for col, f, name, color in ((ind.num_col, fn, ind.num, C_NUM), (ind.den_col, fd, ind.den, C_DEN)):
             fig.add_trace(go.Scatter(x=hh["fecha"], y=hh[col], name=f"{name} real", line=dict(color=color, width=2)))
             fig.add_trace(go.Scatter(x=list(f["fecha"]) + list(f["fecha"][::-1]), y=list(f["upper"]) + list(f["lower"][::-1]),
                                      fill="toself", fillcolor=charts.rgba(color, 0.10), line=dict(width=0),
@@ -379,7 +367,7 @@ def panel(ind: an.Indicador, hist: pd.DataFrame, det: pd.DataFrame, umbrales, re
              f"aplicado por separado a {ind.num} y {ind.den}; parámetros elegidos por mínimo error cuadrático a un paso. "
              f"Escenarios: el efecto relativo de los shocks sobre {ind.num} y {ind.den} al cierre se aplica de forma "
              f"gradual durante los primeros 30 días y luego se mantiene. Intervalo: ±1,96 desviaciones de los errores "
-             f"a un paso, escaladas por la raíz del plazo.", BBG_BLUE)
+             f"a un paso, escaladas por la raíz del plazo.", C_IND)
 
 
 # =============================================================================
@@ -409,7 +397,7 @@ def transversal():
         note(f"<b>Cambio total {wf.attrs['ratio_b'] - wf.attrs['ratio_a']:+.2f} pp.</b> Contribuciones positivas "
              f"{pos['contribucion_pp'].sum():+.2f} pp; negativas {neg['contribucion_pp'].sum():+.2f} pp; "
              f"residual {resid:+.3f} pp. El residual corresponde a la interacción entre numerador y denominador "
-             f"y, en el LCR, al efecto de los topes regulatorios; no es un error de cálculo.", BBG_BLUE)
+             f"y, en el LCR, al efecto de los topes regulatorios; no es un error de cálculo.", C_IND)
         st.dataframe(wf.rename(columns={"categoria": "Categoría", "componente": "Componente",
                                         "monto_a": f"Monto {lab[fa]} (MM$)", "monto_b": f"Monto {lab[fb]} (MM$)",
                                         "contribucion_pp": "Contribución (pp)"}).style.format(
@@ -421,14 +409,12 @@ def transversal():
         for code in ("LCR", "NSFR"):
             ind, hist, det, umb = pick(code)
             k = kd_lcr if code == "LCR" else kd_nsfr
-            st.markdown(f"#### {code}: {k['ratio']:.2f}%")
-            c1, c2 = st.columns([1, 2])
-            c1.plotly_chart(charts.gauge(k["ratio"], code, umb, k["estado"]), width="stretch", key=f"gauge_buf_{code}")
+            meters([{**k, "ind": ind, "umbrales": umb}])
             buf = an.buffers(ind, k["ratio"], k["num"], k["den"], umb)
-            c2.dataframe(buf.style.format({c: "{:+,.0f}" if "MM$" in c else "{:+.2f}" for c in buf.columns
+            st.dataframe(buf.style.format({c: "{:+,.0f}" if "MM$" in c else "{:+.2f}" for c in buf.columns
                                            if pd.api.types.is_numeric_dtype(buf[c])}), hide_index=True, width="stretch")
             stats = an.alert_statistics(hist, ind, umb)
-            c2.dataframe(stats.style.format({"Frecuencia histórica (%)": "{:.1f}"}), hide_index=True, width="stretch")
+            st.dataframe(stats.style.format({"Frecuencia histórica (%)": "{:.1f}"}), hide_index=True, width="stretch")
         st.markdown("##### Monto requerido para llevar un indicador a un nivel objetivo")
         c1, c2, c3 = st.columns(3)
         code = c1.selectbox("Indicador", ["LCR", "NSFR"], key="req_ind")
@@ -442,7 +428,7 @@ def transversal():
         note(f"Para llevar el {code} de {k['ratio']:.2f}% a {target:.0f}%: {ind.num} debe {verb_n} en "
              f"<b>{abs(adj['delta_num']):,.0f} MM$</b>, o bien {ind.den} {verb_d} en <b>{abs(adj['delta_den']):,.0f} MM$</b> "
              f"(cada alternativa por sí sola). En el LCR, el aumento de ALAC supone activos de Nivel 1, que no "
-             f"están sujetos a topes.", BBG_BLUE)
+             f"están sujetos a topes.", C_IND)
 
     with t3:
         section("Precisión de las proyecciones", "evaluación fuera de muestra con origen móvil", "PROY")
@@ -459,7 +445,7 @@ def transversal():
         note(f"Con {int(best['Pruebas'])} pruebas a {hz} días, el método con menor error es <b>{best['Método']}</b> "
              f"(RMSE {best['RMSE (pp)']:.2f} pp, MAPE {best['MAPE (%)']:.2f}%). Su intervalo del 95% contuvo el valor "
              f"observado en el {best['Cobertura intervalo 95% (%)']:.0f}% de los casos. Los errores pasados no "
-             f"garantizan el desempeño futuro.", BBG_BLUE)
+             f"garantizan el desempeño futuro.", C_IND)
         met = st.selectbox("Método a visualizar", list(an.METHODS), format_func=an.METHODS.get, key="bt_m",
                            index=list(an.METHODS).index(best["metodo"]))
         dsel = det_bt[det_bt["metodo"] == met]
@@ -530,16 +516,15 @@ def executive_page():
     esc = st.radio("Escenario de tensión a destacar", ["Adverso", "Severo"], horizontal=True, key="ex_esc")
     st_pair = stress_pair(esc)
     summ = an.executive_summary(k_l, k_n, dec_l, dec_n, st_pair["LCR"], st_pair["NSFR"], U_LCR, U_NSFR)
-    worst_color = min((k_l["estado"], k_n["estado"]), key=lambda e: [BBG_RED, BBG_ORANGE, BBG_BLUE, BBG_MINT].index(e["color"]))["color"]
-    c1, c2 = st.columns(2)
-    c1.plotly_chart(charts.gauge(k_l["ratio"], "LCR", U_LCR, k_l["estado"]), width="stretch", key="gauge_exec_lcr")
-    c2.plotly_chart(charts.gauge(k_n["ratio"], "NSFR", U_NSFR, k_n["estado"]), width="stretch", key="gauge_exec_nsfr")
+    worst_color = min((k_l["estado"], k_n["estado"]), key=lambda e: SEVERITY.index(e["color"]))["color"]
+    if gran != "Diaria":          # en la vista diaria el titular superior ya muestra estas reglas
+        meters([{**k_l, "ind": an.LCR, "umbrales": U_LCR}, {**k_n, "ind": an.NSFR, "umbrales": U_NSFR}])
     st.markdown(f'<div class="conclusion" style="--c:{worst_color};border-color:{worst_color}"><b>Conclusión.</b> '
                 f'{summ["conclusion"]}</div>', unsafe_allow_html=True)
-    blocks = [("Principales movimientos del período", summ["movimientos"], BBG_BLUE, "REAL"),
-              ("Indicadores próximos a sus umbrales", summ["proximos"], BBG_ORANGE, "REAL"),
-              ("Componentes que contribuyen al deterioro", summ["deterioro"], BBG_RED, "REAL"),
-              (f"Resultado del escenario {esc.lower()}", summ["adverso"], BBG_ORANGE, "SIM")]
+    blocks = [("Principales movimientos del período", summ["movimientos"], C_IND, "REAL"),
+              ("Indicadores próximos a sus umbrales", summ["proximos"], C_ALERT, "REAL"),
+              ("Componentes que contribuyen al deterioro", summ["deterioro"], C_BREACH, "REAL"),
+              (f"Resultado del escenario {esc.lower()}", summ["adverso"], C_ALERT, "SIM")]
     for i in range(0, 4, 2):
         cols = st.columns(2)
         for col, (title, items, color, tag) in zip(cols, blocks[i:i + 2]):
@@ -626,7 +611,7 @@ def quality_page():
         col.markdown(f"##### {code}")
         col.dataframe(dq, hide_index=True, width="stretch")
     note("ERROR detiene el cálculo de los indicadores; OBSERVADO se informa pero no lo impide. Los datos provienen "
-         "de la base regulatoria (ledger, core bitemporal y data warehouse) descrita a continuación.", BBG_BLUE)
+         "de la base regulatoria (ledger, core bitemporal y data warehouse) descrita a continuación.", C_IND)
     render_core_architecture_page()
 
 
@@ -644,8 +629,6 @@ elif modulo == MODULES[3]:
 else:
     quality_page()
 
-st.markdown(f"""<div class="report-footer">Panel de liquidez · Gerencia de Riesgo Financiero · Uso interno<br>
+st.markdown(f"""<div class="report-footer">Liquidez · LCR y NSFR · Gerencia de Riesgo Financiero · Uso interno<br>
 Cifras en millones de pesos (MM$) · Fecha de corte {fecha_corte:%d-%m-%Y} ·
-<span style="color:{BBG_MINT}">DATO REAL</span> observado ·
-<span style="color:{BBG_BLUE}">PROYECCIÓN</span> estimada ·
-<span style="color:{BBG_ORANGE}">SIMULACIÓN</span> de escenario</div>""", unsafe_allow_html=True)
+{TAG["REAL"]} observado {TAG["PROY"]} estimada {TAG["SIM"]} de escenario</div>""", unsafe_allow_html=True)

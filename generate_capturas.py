@@ -8,7 +8,7 @@ Funcionamiento:
 1. Levanta su propia instancia de Streamlit con el código actual en un puerto libre
    (no usa servidores ya abiertos, que podrían estar ejecutando una versión anterior).
 2. Controla Google Chrome en modo headless mediante el protocolo DevTools: elige el
-   módulo, la pestaña y, cuando corresponde, el escenario, y captura la página
+   módulo en la barra superior, la pestaña y, cuando corresponde, el escenario, y captura la página
    completa de la vista activa.
 3. Genera el informe PDF con pdf_generator.build_report y renderiza cada página.
 
@@ -38,39 +38,39 @@ WIDTH = 1600
 
 # (archivo, módulo, pestaña, escenario, descripción)
 VIEWS = [
-    ("01_LCR_Indicadores_y_Evolucion.png", "1 · Panel LCR", "Indicadores y evolución", None,
+    ("01_LCR_Indicadores_y_Evolucion.png", "Panel LCR", "Indicadores y evolución", None,
      "Indicadores LCR, ALAC y NAF con variación vs cierre anterior, situación frente a umbrales "
      "(100% regulatorio, 120% alerta, 150% apetito), evolución, variaciones y comparación de períodos."),
-    ("02_LCR_Descomposicion.png", "1 · Panel LCR", "Descomposición", None,
+    ("02_LCR_Descomposicion.png", "Panel LCR", "Descomposición", None,
      "Componentes de ALAC y NAF: monto actual y anterior, variación absoluta y %, impacto en el LCR y "
      "principales componentes que explican el cambio."),
-    ("03_LCR_Pruebas_de_Tension_Severo.png", "1 · Panel LCR", "Pruebas de tensión", "Severo",
+    ("03_LCR_Pruebas_de_Tension_Severo.png", "Panel LCR", "Pruebas de tensión", "Severo",
      "Escenario severo: shocks por componente, recálculo con topes Basilea III, impacto individual, "
      "comparación de escenarios y registro trazable."),
-    ("04_LCR_Proyecciones.png", "1 · Panel LCR", "Proyecciones", None,
+    ("04_LCR_Proyecciones.png", "Panel LCR", "Proyecciones", None,
      "Proyección del LCR bajo escenarios base, adverso y severo con banda del 95%, cruces de umbrales y supuestos."),
-    ("05_NSFR_Indicadores_y_Evolucion.png", "2 · Panel NSFR", "Indicadores y evolución", None,
+    ("05_NSFR_Indicadores_y_Evolucion.png", "Panel NSFR", "Indicadores y evolución", None,
      "Indicadores NSFR, FED y FER con umbrales (100% regulatorio, 105% alerta), evolución y comparación."),
-    ("06_NSFR_Descomposicion.png", "2 · Panel NSFR", "Descomposición", None,
+    ("06_NSFR_Descomposicion.png", "Panel NSFR", "Descomposición", None,
      "Componentes de FED y FER con variaciones y factores que explican el cambio."),
-    ("07_NSFR_Pruebas_de_Tension_Adverso.png", "2 · Panel NSFR", "Pruebas de tensión", "Adverso",
+    ("07_NSFR_Pruebas_de_Tension_Adverso.png", "Panel NSFR", "Pruebas de tensión", "Adverso",
      "Escenario adverso sobre FED y FER con impacto por componente."),
-    ("08_NSFR_Proyecciones.png", "2 · Panel NSFR", "Proyecciones", None,
+    ("08_NSFR_Proyecciones.png", "Panel NSFR", "Proyecciones", None,
      "Proyección del NSFR bajo tensión y con montos históricos de FED y FER."),
-    ("09_Transversal_Puente_de_Variaciones.png", "3 · Análisis transversal", "Puente de variaciones", None,
+    ("09_Transversal_Puente_de_Variaciones.png", "Análisis transversal", "Puente de variaciones", None,
      "Puente del indicador por categoría con contribuciones positivas, negativas y residual por interacción y topes."),
-    ("10_Transversal_Holgura.png", "3 · Análisis transversal", "Holgura frente a límites", None,
+    ("10_Transversal_Holgura.png", "Análisis transversal", "Holgura frente a límites", None,
      "Distancia y holgura monetaria frente a cada umbral, días consecutivos bajo alerta y monto requerido."),
-    ("11_Transversal_Precision_Proyecciones.png", "3 · Análisis transversal", "Precisión de proyecciones", None,
+    ("11_Transversal_Precision_Proyecciones.png", "Análisis transversal", "Precisión de proyecciones", None,
      "Backtesting fuera de muestra: MAE, RMSE, MAPE, sesgo y cobertura del intervalo por método."),
-    ("12_Transversal_Concentracion.png", "3 · Análisis transversal", "Concentración y vulnerabilidad", None,
+    ("12_Transversal_Concentracion.png", "Análisis transversal", "Concentración y vulnerabilidad", None,
      "Concentración (HHI, top 5), volatilidad histórica y dependencia de fondeo mayorista."),
-    ("13_Transversal_Resumen_Ejecutivo.png", "3 · Análisis transversal", "Resumen ejecutivo", None,
+    ("13_Transversal_Resumen_Ejecutivo.png", "Análisis transversal", "Resumen ejecutivo", None,
      "Situación consolidada, conclusión, movimientos, indicadores próximos a umbrales, deterioro, "
      "escenario adverso y registro de observaciones."),
-    ("14_Informe_PDF.png", "4 · Informe PDF", None, None,
+    ("14_Informe_PDF.png", "Informe PDF", None, None,
      "Configuración del informe: fecha de corte, período, escenarios y observaciones."),
-    ("15_Calidad_y_Trazabilidad.png", "5 · Calidad y trazabilidad de datos", None, None,
+    ("15_Calidad_y_Trazabilidad.png", "Calidad de datos", None, None,
      "Controles de calidad previos al cálculo y arquitectura de datos (ledger, core bitemporal, DWH)."),
 ]
 
@@ -180,7 +180,7 @@ async def capture_views(app_url: str) -> None:
             for fname, module, tab, scenario, _ in VIEWS:
                 await page.cmd("Page.navigate", {"url": app_url})
                 await page.settle()
-                await page.click_text('section[data-testid="stSidebar"]', "label", module)
+                await page.click_text('[data-testid="stMain"]', '[data-testid="stButtonGroup"] button', module)
                 if tab:
                     await page.click_text('[data-testid="stMain"]', '[role="tab"]', tab)
                 if scenario:

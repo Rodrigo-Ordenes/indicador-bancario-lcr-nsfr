@@ -1,10 +1,21 @@
 [theme]
-base = "dark"
-primaryColor = "#0168ff"
-backgroundColor = "#000000"
-secondaryBackgroundColor = "#0A0A0A"
-textColor = "#FFFFFF"
-font = "sans serif"
+base = "light"
+primaryColor = "#1F3A5F"
+backgroundColor = "#F6F5F2"
+secondaryBackgroundColor = "#EFEDE8"
+textColor = "#2B2B2B"
+borderColor = "#E6E3DD"
+dataframeBorderColor = "#E6E3DD"
+dataframeHeaderBackgroundColor = "#FAF9F7"
+baseRadius = "0.5rem"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, 'Segoe UI', sans-serif"
+headingFont = "Ubuntu:https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&display=swap, 'Segoe UI', sans-serif"
+linkColor = "#1F3A5F"
+redColor = "#B3261E"
+orangeColor = "#B7791F"
+greenColor = "#2E7D5B"
+blueColor = "#1F3A5F"
+chartCategoricalColors = ["#1F3A5F", "#2A8C82", "#7B5EA7", "#B7791F", "#B3261E", "#8C8882"]
 
 [server]
 headless = true

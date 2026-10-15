@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 import regulatory_engine as reg
-from styles import BBG_BLUE, BBG_MINT, BBG_ORANGE, BBG_RED
+from styles import C_ALERT, C_BREACH, C_LOW, C_OK
 
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 PERIOD_CODE = {"Semanal": "W-FRI", "Mensual": "M", "Anual": "Y"}
@@ -63,14 +63,14 @@ class Umbral:
 
 
 def umbrales_lcr(minimo=100.0, alerta=120.0, apetito=150.0) -> List[Umbral]:
-    return [Umbral(apetito, "Apetito por riesgo", "Interno: apetito", BBG_MINT),
-            Umbral(alerta, "Alerta interna", "Interno: alerta", BBG_ORANGE),
-            Umbral(minimo, "Mínimo regulatorio", "Regulatorio", BBG_RED)]
+    return [Umbral(apetito, "Apetito por riesgo", "Interno: apetito", C_OK),
+            Umbral(alerta, "Alerta interna", "Interno: alerta", C_ALERT),
+            Umbral(minimo, "Mínimo regulatorio", "Regulatorio", C_BREACH)]
 
 
 def umbrales_nsfr(minimo=100.0, alerta=105.0) -> List[Umbral]:
-    return [Umbral(alerta, "Alerta interna", "Interno: alerta", BBG_ORANGE),
-            Umbral(minimo, "Mínimo regulatorio", "Regulatorio", BBG_RED)]
+    return [Umbral(alerta, "Alerta interna", "Interno: alerta", C_ALERT),
+            Umbral(minimo, "Mínimo regulatorio", "Regulatorio", C_BREACH)]
 
 
 def estado(ratio: float, umbrales: List[Umbral]) -> Dict[str, str]:
@@ -78,15 +78,15 @@ def estado(ratio: float, umbrales: List[Umbral]) -> Dict[str, str]:
     vals = {u.tipo: u.valor for u in umbrales}
     minimo, alerta, apetito = vals["Regulatorio"], vals["Interno: alerta"], vals.get("Interno: apetito")
     if ratio < minimo:
-        return {"codigo": "INCUMPLIMIENTO", "color": BBG_RED,
+        return {"codigo": "INCUMPLIMIENTO", "color": C_BREACH,
                 "detalle": f"Bajo el mínimo regulatorio de {minimo:.0f}%"}
     if ratio < alerta:
-        return {"codigo": "ALERTA", "color": BBG_ORANGE,
+        return {"codigo": "ALERTA", "color": C_ALERT,
                 "detalle": f"Cumple el mínimo, pero está bajo la alerta interna de {alerta:.0f}%"}
     if apetito is not None and ratio < apetito:
-        return {"codigo": "BAJO APETITO", "color": BBG_BLUE,
+        return {"codigo": "BAJO APETITO", "color": C_LOW,
                 "detalle": f"Sobre la alerta interna, bajo el apetito por riesgo de {apetito:.0f}%"}
-    return {"codigo": "DENTRO DE APETITO" if apetito is not None else "CUMPLE", "color": BBG_MINT,
+    return {"codigo": "DENTRO DE APETITO" if apetito is not None else "CUMPLE", "color": C_OK,
             "detalle": "Sobre todos los umbrales definidos"}
 
 
@@ -710,7 +710,7 @@ def executive_summary(k_lcr: Dict, k_nsfr: Dict, dec_lcr: pd.DataFrame, dec_nsfr
     else:
         conclusion = "La posición de liquidez cumple todos los umbrales regulatorios e internos."
     if stress_lcr["estresado"]["ratio"] < 100 or stress_nsfr["estresado"]["ratio"] < 100:
-        conclusion += " Bajo el escenario de tensión evaluado, el banco incumpliría el mínimo regulatorio."
+        conclusion += " Bajo el escenario de tensión evaluado, la cooperativa incumpliría el mínimo regulatorio."
     return {"movimientos": movimientos, "proximos": proximos or ["Ningún indicador está próximo a sus umbrales."],
             "deterioro": deterioro or ["No se identifican componentes con deterioro relevante en el período."],
             "adverso": adverso, "conclusion": conclusion}

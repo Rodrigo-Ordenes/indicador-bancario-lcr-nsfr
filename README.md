@@ -14,16 +14,17 @@ o bien `.venv/bin/streamlit run app.py` y abrir `http://localhost:8501`.
 
 ## Navegación
 
-La barra lateral tiene cinco módulos, una **vista temporal** común (diaria, semanal, mensual, anual)
-y los **umbrales**. Una franja superior muestra siempre la situación de LCR y NSFR al último cierre.
+La barra superior reúne los cinco módulos, la **vista temporal** común (diaria, semanal, mensual,
+anual) y el menú de **umbrales**. Bajo ella, el **titular del día** resume en una frase la situación
+de LCR y NSFR al último cierre y muestra cada indicador sobre una regla con sus umbrales.
 
 | Módulo | Contenido |
 |---|---|
-| **1 · Panel LCR** | 1.1–1.2 Indicadores y evolución · 1.3 Descomposición · 1.4 Pruebas de tensión · 1.5 Proyecciones |
-| **2 · Panel NSFR** | La misma estructura y navegación que el LCR |
-| **3 · Análisis transversal** | 3.1 Puente de variaciones · 3.2 Holgura frente a límites · 3.3 Precisión de proyecciones · 3.4 Concentración y vulnerabilidad · 3.5 Resumen ejecutivo y alertas |
-| **4 · Informe PDF** | Informe consolidado con fecha de corte, período, escenarios y observaciones seleccionables |
-| **5 · Calidad y trazabilidad** | Controles de calidad de datos y arquitectura de la base regulatoria |
+| **Panel LCR** | 1.1–1.2 Indicadores y evolución · 1.3 Descomposición · 1.4 Pruebas de tensión · 1.5 Proyecciones |
+| **Panel NSFR** | La misma estructura y navegación que el LCR |
+| **Análisis transversal** | 3.1 Puente de variaciones · 3.2 Holgura frente a límites · 3.3 Precisión de proyecciones · 3.4 Concentración y vulnerabilidad · 3.5 Resumen ejecutivo y alertas |
+| **Informe PDF** | Informe consolidado con fecha de corte, período, escenarios y observaciones seleccionables |
+| **Calidad de datos** | Controles de calidad de datos y arquitectura de la base regulatoria |
 
 ### Vista temporal
 
@@ -40,7 +41,7 @@ Los datos son **cierres diarios**: no existe movimiento intradía.
 | LCR | 100% (fijo) | 120% | 150% |
 | NSFR | 100% (fijo) | 105% | — |
 
-Los niveles internos se ajustan en la barra lateral. Situaciones: **INCUMPLIMIENTO** (< mínimo),
+Los niveles internos se ajustan en el menú **Umbrales**. Situaciones: **INCUMPLIMIENTO** (< mínimo),
 **ALERTA** (< alerta), **BAJO APETITO** (< apetito), **DENTRO DE APETITO** / **CUMPLE**.
 
 ### Naturaleza de cada dato
@@ -51,17 +52,29 @@ de tensión).
 
 ---
 
-## Paleta Bloomberg
+## Identidad visual (Coopeuch)
+
+Pensada para uso diario: fondo papel cálido, superficies blancas, tipografía Ubuntu (la de
+coopeuch.cl) para títulos y navegación e Inter con cifras tabulares para los números. El rojo de
+marca identifica la herramienta (logo, filete superior, módulo activo, acción principal) y no se usa
+para datos, para que nunca se confunda con un incumplimiento.
 
 | Color | Uso |
 |---|---|
-| `#000000` | Fondo |
-| `#0168ff` azul | LCR / NSFR, proyecciones, situación "bajo apetito" |
-| `#4af6c4` menta | ALAC / FED, apetito por riesgo, variaciones favorables, cumplimiento |
-| `#fe443d` rojo | NAF / FER, mínimo regulatorio, variaciones desfavorables, incumplimiento |
-| `#fb8b1f` naranja | Alerta interna, simulaciones |
+| `#E81E2B` rojo Coopeuch | Marca: logo, filete superior, módulo activo, botón principal |
+| `#F6F5F2` / `#FFFFFF` | Fondo papel / superficies |
+| `#1F3A5F` azul tinta | LCR / NSFR, proyecciones, controles |
+| `#2A8C82` verde azulado | ALAC / FED (numerador) |
+| `#7B5EA7` ciruela | NAF / FER (denominador) |
+| `#2E7D5B` verde | Dentro de apetito / cumple, variación favorable |
+| `#3B6EA8` azul | Bajo apetito |
+| `#B7791F` ámbar | Alerta interna, simulaciones |
+| `#B3261E` rojo profundo | Mínimo regulatorio, incumplimiento, variación desfavorable |
 
 Mínimo regulatorio: línea continua; alerta: discontinua; apetito: punteada.
+
+**Logo:** el panel y el informe PDF usan `assets/logo_coopeuch.svg` si existe; si no, muestran el
+nombre en la tipografía de marca.
 
 ---
 

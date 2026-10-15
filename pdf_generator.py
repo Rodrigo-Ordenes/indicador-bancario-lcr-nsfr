@@ -9,8 +9,8 @@ variaciones, escenarios de tensión (recálculo por componente con topes),
 proyecciones (rotuladas como estimaciones), alertas, conclusiones, observaciones
 y acciones, supuestos y resultado de la validación de calidad de datos.
 
-Formato: página blanca A4 con encabezado negro y filete naranja; gráficos en
-paneles negros con la paleta Bloomberg (azul, rojo, menta, naranja).
+Formato: A4 blanco con la identidad de Coopeuch (logo y filete rojo de marca en el
+encabezado); gráficos sobre fondo blanco con los colores de datos de styles.py.
 """
 
 import io
@@ -29,10 +29,10 @@ from fpdf import FPDF  # noqa: E402
 from fpdf.fonts import FontFace  # noqa: E402
 
 import analytics as an  # noqa: E402
-from styles import BBG_BLACK, BBG_BLUE, BBG_MINT, BBG_ORANGE, BBG_RED  # noqa: E402
+from styles import (BRAND_RED, C_ALERT, C_DEN, C_IND, C_NUM, INK, INK_2, INK_3, LINE, LOGO_PATH,  # noqa: E402
+                    SCENARIO_COLOR, SEVERITY)
 
 FONT_DIR = os.path.join(os.path.dirname(matplotlib.__file__), "mpl-data", "fonts", "ttf")
-SCEN_COLOR = {"Base": BBG_BLUE, "Adverso": BBG_ORANGE, "Severo": BBG_RED}
 DASH = {"Regulatorio": "-", "Interno: alerta": "--", "Interno: apetito": ":"}
 
 
@@ -52,23 +52,29 @@ class Report(FPDF):
         self.set_margins(14, 24, 14)
 
     def header(self):
-        self.set_fill_color(*_hex(BBG_BLACK))
-        self.rect(0, 0, 210, 15, "F")
-        self.set_fill_color(*_hex(BBG_ORANGE))
-        self.rect(0, 15, 210, 0.9, "F")
-        self.set_xy(14, 4.5)
-        self.set_font("dv", "B", 10)
-        self.set_text_color(255, 255, 255)
-        self.cell(120, 6, "INFORME DE LIQUIDEZ · LCR Y NSFR")
-        self.set_font("dvm", "", 8)
-        self.set_text_color(*_hex(BBG_ORANGE))
-        self.cell(62, 6, f"Corte {self.corte:%d-%m-%Y}", align="R")
-        self.set_y(22)
+        self.set_fill_color(*_hex(BRAND_RED))
+        self.rect(0, 0, 210, 1.6, "F")
+        if LOGO_PATH.exists():
+            self.image(str(LOGO_PATH), x=14, y=6, h=5.2)
+        else:
+            self.set_xy(14, 5)
+            self.set_font("dv", "B", 11)
+            self.set_text_color(*_hex(BRAND_RED))
+            self.cell(40, 6, "Coopeuch")
+        self.set_xy(70, 5)
+        self.set_font("dv", "", 8.5)
+        self.set_text_color(*_hex(INK_2))
+        self.cell(126, 6, f"Informe de liquidez · LCR y NSFR  ·  Corte {self.corte:%d-%m-%Y}", align="R")
+        self.set_draw_color(*_hex(LINE))
+        self.set_line_width(0.3)
+        self.line(14, 14.5, 196, 14.5)
+        self.set_line_width(0.2)
+        self.set_y(21)
 
     def footer(self):
         self.set_y(-11)
         self.set_font("dv", "", 7)
-        self.set_text_color(110, 110, 110)
+        self.set_text_color(*_hex(INK_3))
         self.cell(0, 5, f"Gerencia de Riesgo Financiero · Uso interno · Generado {self.generado:%d-%m-%Y %H:%M} · "
                         f"Página {self.page_no()}/{{nb}}", align="C")
 
@@ -76,54 +82,56 @@ class Report(FPDF):
     def h1(self, text: str):
         self.ln(2)
         self.set_font("dv", "B", 12)
-        self.set_text_color(0, 0, 0)
+        self.set_text_color(*_hex(INK))
         self.cell(0, 7, text, new_x="LMARGIN", new_y="NEXT")
-        self.set_fill_color(*_hex(BBG_ORANGE))
-        self.rect(self.l_margin, self.get_y(), 18, 0.7, "F")
+        self.set_fill_color(*_hex(BRAND_RED))
+        self.rect(self.l_margin, self.get_y(), 12, 0.7, "F")
         self.ln(3)
 
     def tag(self, text: str, color: str):
-        # Texto negro (legible en papel) con marco del color semántico de la paleta.
-        self.set_font("dvm", "", 7)
-        self.set_text_color(0, 0, 0)
-        self.set_draw_color(*_hex(color))
-        self.set_line_width(0.6)
-        w = self.get_string_width(text) + 4
-        self.cell(w, 4.5, text, border=1, align="C", new_x="LMARGIN", new_y="NEXT")
-        self.set_line_width(0.2)
-        self.ln(1.5)
-        self.set_text_color(0, 0, 0)
+        # Etiqueta con punto del color semántico y texto en el mismo color (dato real, proyección, simulación).
+        self.set_font("dv", "B", 7)
+        w = self.get_string_width(text) + 7
+        x, y = self.get_x(), self.get_y()
+        self.set_fill_color(*_hex(color))
+        self.ellipse(x + 1.2, y + 1.55, 1.6, 1.6, "F")
+        self.set_xy(x + 3.6, y)
+        self.set_text_color(*_hex(color))
+        self.cell(w, 4.6, text, new_x="LMARGIN", new_y="NEXT")
+        self.ln(1.2)
+        self.set_text_color(*_hex(INK))
 
     def para(self, text: str, size: float = 9, bold: bool = False):
         self.set_font("dv", "B" if bold else "", size)
-        self.set_text_color(20, 20, 20)
+        self.set_text_color(*_hex(INK))
         self.multi_cell(0, 4.6, text, new_x="LMARGIN", new_y="NEXT")
         self.ln(1)
 
     def bullets(self, items: List[str], size: float = 8.8):
         self.set_font("dv", "", size)
-        self.set_text_color(20, 20, 20)
+        self.set_text_color(*_hex(INK))
         for it in items:
             self.multi_cell(0, 4.4, f"•  {it}", new_x="LMARGIN", new_y="NEXT")
         self.ln(1)
 
     def box(self, text: str, color: str):
-        self.set_draw_color(*_hex(color))
-        self.set_line_width(0.6)
         self.set_font("dv", "", 9.2)
-        self.set_text_color(0, 0, 0)
-        self.multi_cell(0, 5, text, border=1, padding=2.5, new_x="LMARGIN", new_y="NEXT")
-        self.set_line_width(0.2)
+        self.set_text_color(*_hex(INK))
+        self.set_fill_color(250, 249, 247)
+        y0 = self.get_y()
+        self.multi_cell(0, 5, text, padding=(2.5, 3, 2.5, 5), fill=True, new_x="LMARGIN", new_y="NEXT")
+        self.set_fill_color(*_hex(color))
+        self.rect(self.l_margin, y0, 1.1, self.get_y() - y0, "F")
         self.ln(2)
 
     def table(self, df: pd.DataFrame, widths=None, size: float = 7.6, align_num: bool = True):
         self.set_font("dv", "", size)
-        self.set_text_color(0, 0, 0)
-        self.set_draw_color(200, 200, 200)
-        self.set_fill_color(242, 242, 242)   # filas alternas en gris (evita heredar el color del último filete)
-        head = FontFace(emphasis="BOLD", color=(255, 255, 255), fill_color=_hex(BBG_BLACK))
+        self.set_text_color(*_hex(INK))
+        self.set_draw_color(*_hex(LINE))
+        self.set_fill_color(250, 249, 247)   # filas alternas (evita heredar el color del último filete)
+        head = FontFace(emphasis="BOLD", color=_hex(INK), fill_color=(239, 237, 232))
         with super().table(col_widths=widths, headings_style=head, line_height=4.4, text_align="LEFT",
-                           borders_layout="HORIZONTAL_LINES", cell_fill_color=(246, 246, 246),
+                           borders_layout="HORIZONTAL_LINES", cell_fill_color=(250, 249, 247),
                            cell_fill_mode="ROWS") as t:
             t.row([str(c) for c in df.columns])
             for _, r in df.iterrows():
@@ -132,7 +140,7 @@ class Report(FPDF):
 
     def image_fig(self, fig, h: float):
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=170, facecolor=BBG_BLACK)
+        fig.savefig(buf, format="png", dpi=170, facecolor="white")
         plt.close(fig)
         buf.seek(0)
         if self.get_y() + h > self.h - 18:
@@ -142,50 +150,51 @@ class Report(FPDF):
 
 
 # -----------------------------------------------------------------------------
-# Gráficos (matplotlib, panel negro con paleta Bloomberg)
+# Gráficos (matplotlib, fondo blanco)
 # -----------------------------------------------------------------------------
 
 def _style(ax):
-    ax.set_facecolor(BBG_BLACK)
-    for s in ax.spines.values():
-        s.set_color("#333333")
-    ax.tick_params(colors="#BBBBBB", labelsize=7)
-    ax.grid(color="#1F1F1F", linewidth=0.6)
+    ax.set_facecolor("white")
+    for name, s in ax.spines.items():
+        s.set_visible(name == "bottom")
+        s.set_color(LINE)
+    ax.tick_params(colors=INK_3, labelsize=7, length=0)
+    ax.grid(axis="y", color="#EFEDE8", linewidth=0.7)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%y"))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
 
 
 def _trend_fig(hist: pd.DataFrame, ind, umbrales, title: str):
-    fig, (a1, a2) = plt.subplots(2, 1, figsize=(9, 4.4), sharex=True, gridspec_kw={"height_ratios": [1.4, 1]})
-    fig.patch.set_facecolor(BBG_BLACK)
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(9, 4.4), sharex=True, gridspec_kw={"height_ratios": [1.4, 1], "hspace": 0.32})
+    fig.patch.set_facecolor("white")
     for ax in (a1, a2):
         _style(ax)
-    a1.plot(hist["fecha"], hist[ind.ratio_col], color=BBG_BLUE, lw=1.6, label=ind.codigo)
+    a1.plot(hist["fecha"], hist[ind.ratio_col], color=C_IND, lw=1.7, label=ind.codigo)
     for u in umbrales:
         a1.axhline(u.valor, color=u.color, ls=DASH[u.tipo], lw=1, label=f"{u.nombre} {u.valor:.0f}%")
-    a1.set_title(title, color="white", fontsize=9, loc="left")
-    a1.legend(fontsize=6.5, facecolor=BBG_BLACK, edgecolor="#333333", labelcolor="white", ncol=4, loc="lower left")
-    a2.plot(hist["fecha"], hist[ind.num_col], color=BBG_MINT, lw=1.3, label=f"{ind.num} (MM$)")
-    a2.plot(hist["fecha"], hist[ind.den_col], color=BBG_RED, lw=1.3, label=f"{ind.den} (MM$)")
-    a2.legend(fontsize=6.5, facecolor=BBG_BLACK, edgecolor="#333333", labelcolor="white", ncol=2, loc="upper left")
-    fig.tight_layout()
+    a1.set_title(title, color=INK, fontsize=9, loc="left")
+    a1.legend(fontsize=6.5, frameon=False, labelcolor=INK_2, ncol=4, loc="lower right", bbox_to_anchor=(1, 1.0))
+    a2.plot(hist["fecha"], hist[ind.num_col], color=C_NUM, lw=1.4, label=f"{ind.num} (MM$)")
+    a2.plot(hist["fecha"], hist[ind.den_col], color=C_DEN, lw=1.4, label=f"{ind.den} (MM$)")
+    a2.legend(fontsize=6.5, frameon=False, labelcolor=INK_2, ncol=2, loc="lower right", bbox_to_anchor=(1, 1.0))
+    fig.tight_layout(h_pad=1.8)
     return fig
 
 
 def _projection_fig(hist: pd.DataFrame, ind, proj: Dict[str, pd.DataFrame], umbrales):
     fig, ax = plt.subplots(figsize=(9, 3.2))
-    fig.patch.set_facecolor(BBG_BLACK)
+    fig.patch.set_facecolor("white")
     _style(ax)
     h = hist.tail(120)
-    ax.plot(h["fecha"], h[ind.ratio_col], color=BBG_BLUE, lw=1.6, label=f"{ind.codigo} real")
+    ax.plot(h["fecha"], h[ind.ratio_col], color=C_IND, lw=1.7, label=f"{ind.codigo} real")
     for esc, df in proj.items():
-        c = SCEN_COLOR.get(esc, BBG_ORANGE)
-        ax.fill_between(df["fecha"], df["lower"], df["upper"], color=c, alpha=0.12, lw=0)
+        c = SCENARIO_COLOR.get(esc, C_ALERT)
+        ax.fill_between(df["fecha"], df["lower"], df["upper"], color=c, alpha=0.10, lw=0)
         ax.plot(df["fecha"], df["pred"], color=c, lw=1.4, ls="--", label=f"Proyección {esc} (estimada)")
     for u in umbrales:
         ax.axhline(u.valor, color=u.color, ls=DASH[u.tipo], lw=0.9)
-    ax.set_title(f"Proyección del {ind.codigo} por escenario (estimación, banda 95%)", color="white", fontsize=9, loc="left")
-    ax.legend(fontsize=6.5, facecolor=BBG_BLACK, edgecolor="#333333", labelcolor="white", ncol=4, loc="lower left")
+    ax.set_title(f"Proyección del {ind.codigo} por escenario (estimación, banda 95%)", color=INK, fontsize=9, loc="left")
+    ax.legend(fontsize=6.5, frameon=False, labelcolor=INK_2, ncol=4, loc="upper center", bbox_to_anchor=(0.5, -0.1))
     fig.tight_layout()
     return fig
 
@@ -235,16 +244,17 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
 
     # 1. Portada y resumen ------------------------------------------------------
     pdf.set_font("dv", "B", 17)
+    pdf.set_text_color(*_hex(INK))
     pdf.cell(0, 9, "Informe de liquidez: LCR y NSFR", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("dv", "", 9)
-    pdf.set_text_color(90, 90, 90)
+    pdf.set_text_color(*_hex(INK_2))
     pdf.multi_cell(0, 4.6, f"Fecha de corte: {corte:%d-%m-%Y}  ·  Fecha de generación: {generado:%d-%m-%Y %H:%M}  ·  "
                            f"Variaciones: {granularidad.lower()} ({L['k']['periodo']} {L['k']['ref_ant']})  ·  "
                            f"Tendencia: últimos {meses_tendencia} meses\nFuente: {fuente}",
                    new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
     pdf.h1("1. Situación consolidada")
-    pdf.tag("DATO REAL", BBG_MINT)
+    pdf.tag("DATO REAL", INK_2)
     rows = []
     for code, D in (("LCR", L), ("NSFR", N)):
         k = D["k"]
@@ -255,7 +265,7 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
                                           "Denominador (MM$)", "Distancia a umbrales"]),
               widths=(19, 17, 18, 28, 24, 25, 51))
     worst_color = min((L["k"]["estado"]["color"], N["k"]["estado"]["color"]),
-                      key=[BBG_RED, BBG_ORANGE, BBG_BLUE, BBG_MINT].index)
+                      key=SEVERITY.index)
     pdf.box("Conclusión: " + summ["conclusion"] + (f"\n\nComentario de la gerencia: {comentario}" if comentario else ""),
             worst_color)
     pdf.para("Principales movimientos del período", 9.5, True)
@@ -266,7 +276,7 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
     # 2. Tendencias ------------------------------------------------------------
     pdf.add_page()
     pdf.h1("2. Tendencias e indicadores frente a umbrales")
-    pdf.tag("DATO REAL", BBG_MINT)
+    pdf.tag("DATO REAL", INK_2)
     start = corte - pd.DateOffset(months=meses_tendencia)
     for code, D in (("LCR", L), ("NSFR", N)):
         h = D["hist"][D["hist"]["fecha"] >= start]
@@ -279,7 +289,7 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
     # 3. Holguras ------------------------------------------------------------
     pdf.add_page()
     pdf.h1("3. Holgura frente a los límites")
-    pdf.tag("DATO REAL", BBG_MINT)
+    pdf.tag("DATO REAL", INK_2)
     for code, D in (("LCR", L), ("NSFR", N)):
         ind = D["ind"]
         b = D["buf"]
@@ -299,7 +309,7 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
 
     # 4. Principales variaciones ---------------------------------------------
     pdf.h1("4. Principales variaciones del período")
-    pdf.tag("DATO REAL", BBG_MINT)
+    pdf.tag("DATO REAL", INK_2)
     for code, D in (("LCR", L), ("NSFR", N)):
         k = D["k"]
         pdf.para(f"{code}: {k['periodo_ant']} → {k['periodo']} ({k['d_ratio']:+.2f} pp)", 9.5, True)
@@ -315,7 +325,7 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
     # 5. Escenarios de tensión -------------------------------------------------
     pdf.add_page()
     pdf.h1("5. Pruebas de tensión")
-    pdf.tag("SIMULACIÓN", BBG_ORANGE)
+    pdf.tag("SIMULACIÓN", C_ALERT)
     rows = []
     for e in ["Base"] + list(escenarios):
         for code, D in (("LCR", L), ("NSFR", N)):
@@ -341,7 +351,7 @@ def build_report(lcr_hist, lcr_det, nsfr_hist, nsfr_det, corte: pd.Timestamp, gr
     # 6. Proyecciones -----------------------------------------------------------
     pdf.add_page()
     pdf.h1("6. Proyecciones")
-    pdf.tag("PROYECCIÓN · ESTIMACIÓN", BBG_BLUE)
+    pdf.tag("PROYECCIÓN · ESTIMACIÓN", C_IND)
     pdf.para("Las proyecciones son estimaciones estadísticas sujetas a incertidumbre; no constituyen resultados "
              "ciertos. Se proyectan numerador y denominador con sus montos históricos (Holt amortiguado) y cada "
              "escenario aplica gradualmente, durante 30 días, el efecto de sus shocks.", 8.3)

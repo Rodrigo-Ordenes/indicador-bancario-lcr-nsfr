@@ -1,146 +1,130 @@
-# 🏦 Dashboard Ejecutivo de Indicadores Bancarios: LCR & NSFR
+# 🏦 Terminal ALM: Panel Interactivo de Liquidez & Balance (LCR & NSFR)
+### Reportería Ejecutiva para la Alta Administración y Comité ALCO (Basilea III / CMF Chile)
 
-Plataforma ejecutiva e interactiva de analítica bancaria y supervisión regulatoria (Basilea III / CMF), desarrollada en Python y Streamlit para la Gerencia de Finanzas, Riesgo Financiero y el Comité ALCO (Asset & Liability Management).
+Plataforma ejecutiva e interactiva de analítica bancaria y supervisión financiera, desarrollada para la **Gerencia de Riesgo Financiero, Tesorería, Finanzas y el Comité ALCO**. Diseñada bajo la **paleta oficial Bloomberg Terminal Dark** (`#000000`, `#0168ff`, `#fe443d`, `#4af6c4`, `#fb8b1f`, `#ffd15c`), combina rigor matemático estricto según **Basilea III (BCBS 238 LCR / BCBS 295 NSFR)** con una experiencia intuitiva de alta dirección y capacidades de **exportación de informes PDF ejecutivos**.
 
 ---
 
-## 🚀 Inicio Rápido (Localhost)
+## 🎨 Paleta Oficial Bloomberg Terminal Dark
 
-Para iniciar el sitio web en tu navegador:
+La plataforma adopta el estándar de monitores profesionales **Bloomberg Terminal**, maximizando el contraste y la claridad de lectura para ejecutivos:
+
+| Elemento | Código Hex | Rol en el Dashboard |
+| :--- | :--- | :--- |
+| **Fondo Base** | `#000000` | Fondo negro terminal puro de alta concentración y descanso visual. |
+| **Superficies** | `#0D0D0D` / `#141414` | Tarjetas KPI, contenedores analíticos y paneles de control. |
+| **Azul Bloomberg** | `#0168ff` | Indicadores principales (LCR / NSFR), acentos activos y botones primarios. |
+| **Rojo Bloomberg** | `#fe443d` | Salidas Netas (NAF), Fondeo Requerido (FER), límite mínimo normativo (100%) y alertas críticas. |
+| **Menta Bloomberg** | `#4af6c4` | Activos Líquidos (ALAC), Fondeo Disponible (FED), estado óptimo y variaciones positivas. |
+| **Naranja Bloomberg** | `#fb8b1f` | Apetito por riesgo (150% LCR / 110% NSFR) y alertas intermedias. |
+| **Amarillo Bloomberg** | `#ffd15c` | Nivel de alerta interna (120% LCR / 105% NSFR) y notas de advertencia. |
+
+---
+
+## 📋 Módulos y Requerimientos Funcionales Implementados
+
+### 1. Panel LCR (Ratio de Cobertura de Liquidez - 30 Días)
+- **1.1. Indicadores Principales**:
+  - Muestra LCR actual, ALAC (Activos Líquidos de Alta Calidad) y NAF (Salidas Netas de Efectivo).
+  - Variaciones período a período en puntos porcentuales ($\Delta$ pp) y montos monetarios ($\Delta$ MM$).
+  - Alertas visuales automáticas según los umbrales normativos:
+    - **100%**: Límite mínimo de referencia CMF (Rojo `#fe443d`).
+    - **120%**: Nivel de alerta interna ALCO (Amarillo `#ffd15c`).
+    - **150%**: Apetito por riesgo institucional (Naranja `#fb8b1f`).
+- **1.2. Evolución y Comparación**:
+  - Gráfico temporal de LCR, ALAC y NAF con líneas de alertas, límites y apetitos.
+  - Filtros de granularidad temporal: Diaria, Semanal (viernes), Mensual (fin de mes) y Anual.
+  - Módulo de comparación directa entre dos períodos seleccionados (Fecha A vs Fecha B) con variaciones absolutas y porcentuales.
+- **1.3. Descomposición de Componentes**:
+  - Desglose jerárquico por categorías y partidas contables de ALAC y NAF.
+  - Montos actuales, montos del período anterior y variaciones absolutas/porcentuales.
+  - Identificación de los principales factores que explican los cambios (Top Drivers).
+  - Exportación de la descomposición en planillas CSV.
+- **1.4. Pruebas de Tensión (Stress Testing)**:
+  - Sliders interactivos para aumentar o disminuir montos de colaterales y pasivos.
+  - Recálculo dinámico con el motor regulatorio respetando los topes de Basilea III (Cap 40% Nivel 2, Cap 15% Nivel 2B y Cap 75% Inflows).
+  - Escenarios predefinidos de un clic: **Base (0%)**, **Adverso (-5% ALAC, +10% NAF)** y **Severo (-15% ALAC, +25% NAF)**.
+  - Botón **Restablecer montos originales**.
+- **1.5. Proyecciones de Liquidez**:
+  - Proyección del LCR a 30, 60, 90 y 180 días con cono de incertidumbre al 95%.
+  - Detalle de supuestos, método de estimación y resultados proyectados frente a los límites.
+
+---
+
+### 2. Panel NSFR (Ratio de Fondeo Estable Neto - Estructural > 1 Año)
+- **2.1. Indicadores Principales**:
+  - Muestra NSFR actual, FED (Fondeo Estable Disponible) y FER (Fondeo Estable Requerido).
+  - Variaciones respecto de períodos anteriores.
+  - Alertas visuales según los umbrales definidos:
+    - **100%**: Límite mínimo de referencia CMF.
+    - **105%**: Nivel de alerta interna ALCO.
+    - **110%**: Apetito por riesgo institucional.
+- **2.2. Evolución y Comparación**:
+  - Gráfico temporal de NSFR, FED y FER con límites y apetitos.
+  - Filtros diaria, semanal, mensual y anual.
+  - Comparador entre períodos seleccionados con deltas absolutos y porcentuales.
+- **2.3. Descomposición de Componentes**:
+  - Tabla detallada de partidas de FED (capital, depósitos) y FER (hipotecarios, créditos corporativos, inversiones).
+  - Variación absoluta y porcentual por componente e identificación de top drivers.
+  - Descarga en CSV.
+- **2.4. Pruebas de Tensión**:
+  - Modificación interactiva de componentes de FED y FER.
+  - Recálculo automático del ratio y evaluación de impacto en la holgura estructural.
+  - Escenarios Base, Adverso y Severo con botón de restablecimiento.
+- **2.5. Proyecciones**:
+  - Proyección del NSFR con montos históricos, bandas de confianza y supuestos cuantitativos.
+
+---
+
+### 3. Análisis Transversal de Liquidez
+- **3.1. Puente de Variaciones (Waterfall Bridge)**:
+  - Explica la variación del ratio entre cualquier par de fechas seleccionadas ($t_0 \to t_1$).
+  - Descompone matemáticamente el cambio en: **Efecto Activo / Numerador**, **Efecto Pasivo / Denominador** e **Interacción / Ajuste de topes**.
+- **3.2. Holgura Respecto de los Límites**:
+  - Matriz de distancias a 150%, 120% y 100% (LCR) y 105%, 100% (NSFR) en puntos porcentuales (pp) y holgura monetaria (MM$ CLP).
+  - Capacidad máxima de absorción de salidas o fondeo requerido antes de quebrar cada umbral.
+  - Estadísticas históricas: días consecutivos bajo alerta y frecuencia histórica de incumplimiento.
+- **3.3. Precisión de las Proyecciones (Backtesting)**:
+  - Comparación objetiva de valores proyectados vs observados en ventanas de test.
+  - Métricas de error: **MAE (pp)**, **MAPE (%)** y **RMSE (pp)**.
+  - Comparación de modelos: Alisamiento Exponencial Doble (Holt), Regresión Lineal de Tendencia y Media Móvil Ponderada.
+- **3.4. Concentración y Vulnerabilidad**:
+  - Índice de Concentración **Herfindahl-Hirschman (HHI)** por componente con diagnóstico regulatorio.
+  - Curva de Pareto y participación acumulada Top 5 / 80%.
+  - Volatilidad histórica por partida (Media, Desviación Estándar y Coeficiente de Variación %).
+- **3.5. Resumen Ejecutivo y Alertas Accionables**:
+  - Síntesis de movimientos del período y diagnóstico de vulnerabilidad.
+  - Cuadro de observaciones gerenciales y plan de acción de mitigación.
+  - Generación de Memorándum ALCO asistido por Inteligencia Artificial (Copilot / OpenAI).
+
+---
+
+### 4. Exportación de Informes en PDF
+- **Generación directa de informe PDF** consolidado con formato ejecutivo formal.
+- Incluye indicadores actuales, semáforos, tablas de holguras, pruebas de estrés y proyecciones.
+- Registra fecha de corte, fecha de generación, supuestos relevantes y acciones de mitigación.
+- Descarga inmediata en el navegador mediante botón de descarga.
+
+---
+
+## 🚀 Inicio Rápido en Localhost
 
 ```bash
-# Opción 1: Con el script directo
+# 1. Iniciar con el script automatizado
 ./run.sh
 
-# Opción 2: Con el entorno virtual
+# O manualmente con el entorno virtual:
 source .venv/bin/activate
 streamlit run app.py
 ```
-
-Luego abre en tu navegador: **`http://localhost:8501`**
-
----
-
-## 🎨 Tema y Paleta Oficial Bloomberg Terminal
-
-La interfaz está inspirada en los monitores profesionales **Bloomberg Terminal**, construida con una base negra profunda y colores de alto contraste:
-
-| Color | Código Hex | Rol en el Dashboard |
-|---|---|---|
-| **Base Negra** | `#000000` | Fondo general, contenedores y canvas de gráficos |
-| **Rojo Bloomberg** | `#fe443d` | Salidas Netas (NAF), Fondeo Requerido (FER), deltas negativas ($\Delta < 0$) y alertas críticas |
-| **Azul Bloomberg** | `#0168ff` | Indicadores principales (LCR / NSFR), botones de acción y títulos |
-| **Menta / Turquesa** | `#4af6c4` | Activos Líquidos (ALAC), Fondeo Disponible (FED), deltas positivas ($\Delta > 0$) y estado óptimo |
-| **Naranja Bloomberg** | `#fb8b1f` | Umbral de apetito de riesgo (105%), alertas preventivas y acentos secundarios |
+Abre en tu navegador: **`http://localhost:8501`**
 
 ---
 
-## 📊 Características y Capacidades Principales
+## 🧪 Pruebas Unitarias
 
-### 1. Indicadores Regulatorios
-- **LCR (Liquidity Coverage Ratio / Ratio de Cobertura de Liquidez)**:
-  - $\text{LCR} = \frac{\text{ALAC}}{\text{NAF}} \times 100\%$
-  - **ALAC**: Activos Líquidos de Alta Calidad (HQLA Nivel 1, 2A, 2B).
-  - **NAF**: Salidas Netas de Efectivo a 30 días (Depósitos minoristas, mayoristas, líneas comprometidas menos entradas).
-- **NSFR (Net Stable Funding Ratio / Ratio de Fondeo Estable Neto)**:
-  - $\text{NSFR} = \frac{\text{FED}}{\text{FER}} \times 100\%$
-  - **FED**: Fondos Estables Disponibles (ASF: Capital, depósitos estables, fondeo a largo plazo).
-  - **FER**: Fondos Estables Requeridos (RSF: Hipotecarios, créditos corporativos, inversiones).
-
-### 2. Vistas Temporales (Granularidad)
-- **📅 Diaria**: Variación día a día ($\Delta$ pp y $\Delta$ monto).
-- **📆 Semanal**: Cierre semanal al viernes, midiendo la dinámica semana contra semana.
-- **🗓️ Mensual**: Cierre de fin de mes (para comités ALCO y reportes a directorio).
-- **📈 Anual**: Tendencia interanual y evolución estructural del balance.
-
-### 3. Vistas Analíticas
-- **📊 Vista Ejecutiva**:
-  - 4 Tarjetas KPI con deltas y semáforo normativo en tiempo real.
-  - **Gráfico de Cascada (Waterfall / Bridge)**: Descompone matemáticamente cuánto del cambio del ratio fue explicado por el numerador ($\Delta$ ALAC / $\Delta$ FED) y cuánto por el denominador ($\Delta$ NAF / $\Delta$ FER).
-  - **Gráfico de Tendencia con Bandas**: Muestra la evolución frente al mínimo normativo CMF (100%) y el apetito de riesgo interno (ej. 105%).
-  - **Gráfico de Composición (Doble Eje)**: Montos de Activos vs Pasivos en MM$ en el eje izquierdo, y Ratio en % en el eje derecho.
-  - **Gráfico de Variaciones**: Barras periódicas de $\Delta$ ratio y $\Delta$ componentes.
-- **🔍 Vista Detallada Descompuesta**:
-  - Filtro por fecha de corte.
-  - Descomposición jerárquica por categorías regulatorias y cuentas individuales.
-  - Visualización gráfica de participación (%) y montos ponderados.
-  - Tabla interactiva con ordenamiento, búsqueda y botón de **Descarga en CSV**.
-- **🧪 Simulador de Estrés ALM (Propuesta de Alto Valor)**:
-  - Pruebas de estrés interactivas (What-If): Aplica shocks porcentuales a activos y pasivos para verificar si el banco resiste escenarios de corridas de depósitos o caídas de mercado sin quebrar los límites regulatorios.
-
-### 4. Análisis Ejecutivo con Inteligencia Artificial (Copilot)
-- **Motor Cuantitativo Automático (Offline)**: Genera instantáneamente el diagnóstico de cumplimiento, holgura, descomposición matemática de drivers y recomendaciones para la Mesa de Dinero sin necesidad de API keys.
-- **Conector a Copilot / OpenAI / Azure**: Con un solo clic (`✨ Generar Memo con Copilot`), la IA redacta un memorándum ejecutivo formal para la Alta Dirección.
-
-### 5. Arquitectura Empresarial de 4 Capas (SQL Server 2017 & Kimball)
-- **🔐 Capa 1: OLTP / Ledger Inmutable**: Contabilidad bancaria multi-leg con invariante $\sum \text{Debit} - \sum \text{Credit} = 0$, `DENY UPDATE/DELETE`, triggers defensivos `INSTEAD OF` y encadenamiento hash SHA-256 (`HASHBYTES`).
-- **⏳ Capa 2: Core Bitemporal / ODS**: Asserted Versioning framework combinando **System Transaction Time** (`SysStartTime`, `SysEndTime` nativos) con **Business Effective Time** (`ValidFrom`, `ValidTo`) para resolver auditorías CMF (C46 Provisiones / C55 Liquidez).
-- **📊 Capa 3: Data Warehouse Kimball**: Minidimensiones de riesgo (`dim_risk_band`), dimensión conformada (`dim_partner`), `dim_date` con role-playing views y tablas de hechos con **Clustered Columnstore Indexes (CCI)** particionadas mensualmente.
-- **🔄 Capa 4: Staging & Linaje ETL**: Registro de lotes (`stg.load_execution_log`), reconciliación nocturna Legacy vs Ledger y conmutación masiva zero-lock vía **Partition Switching**.
-- **📜 Scripts T-SQL de Producción (`sql/`)**:
-  - `00_init_database.sql`: Creación de base de datos con RCSI y 4 esquemas.
-  - `01_oltp_immutable_ledger.sql`: DDL de cabeceras/postings, triggers y procedimientos seguros.
-  - `02_stg_audit_lineage.sql`: Bitácora de ejecución, linaje y función de checksum SHA-256.
-  - `03_core_bitemporal_ods.sql`: Tablas temporal bitemporales con versionado nativo.
-  - `04_dwh_kimball_presentation.sql`: Esquema Kimball, minidimensiones, fechas y hechos con CCI.
-  - `05_regulatory_time_travel_audit.sql`: Consultas de auditoría retrospectiva CMF.
-  - `06_migration_and_partition_switching.sql`: Activación CDC, backfilling, partition switching y reconciliación.
-
----
-
-## 🗄️ Cómo Conectar tus Tablas de SQL (Arquitectura de 4 DataFrames)
-
-El sistema está desacoplado limpiamente en **`data_loader.py`**, donde se nutren los 4 DataFrames requeridos:
-
-| DataFrame | Función en `data_loader.py` | Columnas Esperadas | Descripción |
-|---|---|---|---|
-| `df_lcr_historico` | `load_lcr_historico()` | `fecha`, `lcr`, `alac`, `naf` | Serie histórica diaria del ratio LCR y totales |
-| `df_lcr_detalle` | `load_lcr_detalle()` | `fecha`, `componente`, `categoria`, `subcategoria`, `monto_nominal`, `factor_ponderacion`, `monto_ponderado` | Cuentas descompuestas de ALAC y NAF |
-| `df_nsfr_historico` | `load_nsfr_historico()` | `fecha`, `nsfr`, `fed`, `fer` | Serie histórica diaria del ratio NSFR y totales |
-| `df_nsfr_detalle` | `load_nsfr_detalle()` | `fecha`, `componente`, `categoria`, `subcategoria`, `monto_nominal`, `factor_ponderacion`, `monto_ponderado` | Cuentas descompuestas de FED y FER |
-
-### Ejemplo de Conexión en `data_loader.py`:
-
-```python
-import pandas as pd
-from sqlalchemy import create_engine
-
-# 1. Configurar tu motor de base de datos
-engine = create_engine("postgresql://usuario:password@servidor:5432/banco_riesgo")
-# o para SQL Server: create_engine("mssql+pyodbc://usuario:password@servidor/db?driver=ODBC+Driver+17+for+SQL+Server")
-
-@st.cache_data(ttl=600)
-def load_lcr_historico() -> pd.DataFrame:
-    query = \"\"\"
-        SELECT 
-            CAST(fecha AS DATE) AS fecha,
-            lcr,
-            alac,
-            naf
-        FROM tabla_lcr_diario
-        ORDER BY fecha ASC
-    \"\"\"
-    df = pd.read_sql(query, engine)
-    df['fecha'] = pd.to_datetime(df['fecha'])
-    return df
+```bash
+.venv/bin/python -m unittest discover -s tests -v
 ```
-
----
-
-## 📁 Estructura del Proyecto
-
-```
-Indicador bancario/
-├── app.py                      # Interfaz principal Streamlit y orquestación
-├── data_loader.py              # Extracción y carga de los 4 DataFrames (con soporte SQL)
-├── analytics.py                # Remuestreo temporal (diario/semanal/mensual/anual), deltas y fórmulas
-├── ai_analyst.py               # Motor de IA: Análisis heurístico financiero y conector Copilot/OpenAI
-├── styles.py                   # CSS ejecutivo con estilo institucional bancario
-├── components/
-│   ├── ui_cards.py             # Tarjetas ejecutivas KPI y semáforos de cumplimiento
-│   ├── charts.py               # Gráficos Plotly: Tendencia, doble eje, variaciones, cascada y categorías
-│   └── tables.py               # Tablas estilizadas de descomposición y exportación CSV
-├── requirements.txt            # Librerías de Python
-├── run.sh                      # Script ejecutable de inicio
-└── README.md                   # Documentación técnica y funcional
-```
+> **15/15 Pruebas Unitarias Aprobadas (Ran in 0.16s - OK)**:
+> Cobertura sobre topes de Basilea III (40%, 15%, 75%), inmutabilidad contable, transacciones en dos fases, idempotencia y detección criptográfica de manipulaciones.

@@ -23,3 +23,6 @@ Thumbs.db
 
 # Variables de entorno secretas
 .env
+
+# Editor local
+.claude/

@@ -1,300 +1,320 @@
 """
 components/core_architecture_view.py
 ====================================
-Vista ejecutiva e interactiva de la Arquitectura de 4 Capas y Auditoría Bitemporal:
-1. OLTP / Ledger Inmutable (Multi-leg & Hash Chaining SHA-256)
-2. Staging & Control Layer (Auditoría ETL, Linaje y Reconciliación)
-3. Core Bitemporal / ODS (Time-Travel para Auditoría CMF C46/C55)
-4. Data Warehouse Kimball (Minidimensiones, CCI y Particionamiento)
-5. Visor interactivo de scripts T-SQL de producción (SQL Server 2017)
+Módulo de arquitectura y auditoría: presenta, con datos vivos de
+`core_banking.db`, las cuatro capas y los reportes normativos derivados.
+
+1. Ledger inmutable: asientos, dos fases (pending / posted), idempotencia,
+   outbox y verificación criptográfica completa.
+2. Core bitemporal (AVF): time travel, historial de aserciones y aserciones futuras.
+3. DWH Kimball: snapshot con reexpresiones, flujos contractuales y saldo point-in-time.
+4. Control ETL: bitácora de lotes y conciliación de tres vías.
+5. Reportes normativos: C46, C54, C55 y C56.
+6. Scripts T-SQL de producción.
 """
 
 import os
-import streamlit as st
+from datetime import date, datetime, timedelta
+
 import pandas as pd
-from datetime import datetime, date
+import streamlit as st
+
 import db_layer
 
-def render_core_architecture_page():
-    # Asegurar inicialización de la base de datos local
+MONEY = "${:,.0f}"
+
+
+def _section(title: str, note: str = "") -> None:
+    st.markdown(f'<div class="section-title"><h3>{title}</h3><span>{note}</span></div>', unsafe_allow_html=True)
+
+
+def _fmt_money(df: pd.DataFrame, cols) -> "pd.io.formats.style.Styler":
+    return df.style.format({c: MONEY for c in cols if c in df.columns}, na_rep="—")
+
+
+@st.cache_resource(show_spinner="Inicializando la base de datos regulatoria…")
+def _ensure_db() -> bool:
     db_layer.init_database()
+    return True
 
-    st.markdown("""
-    <div style="margin-bottom: 20px;">
-        <h2 style="color: #ffffff; font-family: 'JetBrains Mono', monospace; margin: 0;">
-            🏛️ ARQUITECTURA DE DATOS BANCARIA & AUDITORÍA BITEMPORAL
-        </h2>
-        <div style="color: #94a3b8; font-size: 13px; margin-top: 4px;">
-            Plataforma Enterprise SQL Server 2017 | Metodología Kimball | Cumplimiento Normativo CMF & Basilea III
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
-    # Métricas de Resumen de la Arquitectura
+def render_core_architecture_page():
+    _ensure_db()
+
+    st.markdown("### Arquitectura de datos y auditoría regulatoria")
+    st.caption("Cuatro capas desacopladas: ledger OLTP inmutable · staging y control · core bitemporal (AVF) · "
+               "data warehouse dimensional (Kimball). Cifras en pesos chilenos (CLP).")
+
+    is_chain_valid, audit_df = db_layer.verify_ledger_cryptographic_chain()
+    recon = db_layer.get_latest_reconciliation()
+    counts = db_layer.get_dwh_row_counts().set_index("tabla")["filas"]
     m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        entries_df = db_layer.get_ledger_entries()
-        st.metric(label="Asientos en Ledger Inmutable", value=f"{len(entries_df)} Asientos", delta="Append-Only Activo")
-    with m2:
-        is_chain_valid, _ = db_layer.verify_ledger_cryptographic_chain()
-        chain_status = "● 100% VÁLIDO" if is_chain_valid else "● ALTERACIÓN DETECTADA"
-        st.metric(label="Cadena Criptográfica SHA-256", value=chain_status, delta="Sin mutaciones")
-    with m3:
-        st.metric(label="Modelo ODS Bitemporal", value="System + Valid Time", delta="CMF Time-Travel OK")
-    with m4:
-        st.metric(label="Presentación Kimball DWH", value="CCI + Minidimensiones", delta="Batch Mode Activo")
+    m1.metric("Asientos en el ledger", f"{db_layer.count_ledger_entries():,}", "append-only")
+    m2.metric("Cadena SHA-256", "Íntegra" if is_chain_valid else "Alterada",
+              f"{len(audit_df):,} bloques recalculados", delta_color="off")
+    descuadres = int((recon["status"] != "CUADRADO").sum()) if not recon.empty else 0
+    m3.metric("Conciliación 3 vías", "0,0000" if descuadres == 0 else f"{descuadres} descuadres",
+              "core = ledger = DWH" if descuadres == 0 else "revisar", delta_color="off")
+    m4.metric("Hechos de snapshot", f"{counts['dwh_fact_account_balance_snapshot']:,}",
+              f"{counts['dwh_fact_contractual_cashflows']:,} flujos", delta_color="off")
 
-    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+    tabs = st.tabs(["1 · Ledger inmutable", "2 · Core bitemporal", "3 · Data warehouse",
+                    "4 · Control ETL", "5 · Reportes CMF", "6 · Scripts T-SQL"])
 
-    # Pestañas de las 4 Capas + Visor de Código SQL
-    tab_ledger, tab_bitemporal, tab_dwh, tab_etl, tab_sql = st.tabs([
-        "🔐 1. Ledger Inmutable (OLTP)",
-        "⏳ 2. Auditoría Bitemporal (ODS)",
-        "📊 3. DWH Dimensional (Kimball)",
-        "🔄 4. Control ETL & Reconciliación",
-        "📜 5. Scripts T-SQL Producción"
-    ])
-
-    # =========================================================================
-    # TAB 1: LEDGER INMUTABLE
-    # =========================================================================
-    with tab_ledger:
-        st.markdown("### 🔐 Capa 1: Ledger Contable Inmutable (Data Plane)")
-        st.caption(
-            "Garantiza inmutabilidad estricta sin Ledger nativo en SQL Server 2017 combinando "
-            "DENY UPDATE/DELETE, triggers INSTEAD OF, contabilidad multi-leg y encadenamiento hash SHA-256."
-        )
-
-        col_led1, col_led2 = st.columns([2, 1])
-        with col_led1:
-            st.markdown("#### 📖 Cabeceras Contables (`oltp.journal_entry`)")
-            st.dataframe(
-                entries_df[['journal_entry_id', 'posting_date', 'transaction_code', 'description', 
-                            'is_balanced', 'prev_entry_hash', 'entry_hash']],
-                width='stretch',
-                hide_index=True
-            )
-
-        with col_led2:
-            st.markdown("#### 🛡️ Verificación Criptográfica Forense")
-            st.markdown(
-                "Verifica que el hash `entry_hash` de cada bloque esté matemáticamente encadenado "
-                "con el `prev_entry_hash` del bloque anterior sin alteraciones físicas."
-            )
-            btn_verify = st.button("🔐 Ejecutar Verificación SHA-256", key="btn_verify_ledger")
-            
-            is_valid, audit_df = db_layer.verify_ledger_cryptographic_chain()
-            if btn_verify or True:
-                if is_valid:
-                    st.success("✅ **Integridad Garantizada:** Todos los bloques SHA-256 coinciden exactamente con su predecesor.")
-                else:
-                    st.error("🚨 **Alerta Forense:** Se detectó una inconsistencia en la cadena de firmas.")
-                st.dataframe(audit_df, width='stretch', hide_index=True)
-
-        st.markdown("---")
-        st.markdown("#### 📑 Detalle de Postings Multi-Leg (`oltp.ledger_posting`)")
-        st.caption("Verificación de la invariante: $\\sum Débitos - \\sum Créditos = 0$")
-        postings_df = db_layer.get_ledger_postings()
+    # ---------------------------------------------------------------------
+    with tabs[0]:
+        _section("Ledger contable inmutable", "Capa 1 · data plane")
+        st.caption("Cada asiento se contabiliza en una única transacción no interactiva: validación de partida doble, "
+                   "límites de sobregiro, encadenamiento SHA-256, registro de idempotencia y evento de outbox, "
+                   "todo en el mismo commit. UPDATE y DELETE están bloqueados por triggers en el motor.")
+        entries = db_layer.get_ledger_entries(limit=40)
+        st.markdown("##### Asientos de operaciones nominadas (excluye movimiento neto diario del libro ALM)")
         st.dataframe(
-            postings_df[['posting_id', 'journal_entry_id', 'line_number', 'account_id', 'contract_id', 
-                         'currency_code', 'amount_debit', 'amount_credit', 'functional_debit', 'functional_credit', 'row_hash']].style.format({
-                'amount_debit': '${:,.2f}',
-                'amount_credit': '${:,.2f}',
-                'functional_debit': '${:,.2f}',
-                'functional_credit': '${:,.2f}'
-            }),
-            width='stretch',
-            hide_index=True
+            entries[["journal_entry_id", "entry_kind", "posting_date", "value_date", "transaction_code", "description",
+                     "total_debit", "pending_entry_id", "entry_hash"]].rename(columns={
+                "journal_entry_id": "Asiento", "entry_kind": "Tipo", "posting_date": "Fecha contable",
+                "value_date": "Fecha valor", "transaction_code": "Código", "description": "Glosa",
+                "total_debit": "Monto", "pending_entry_id": "Reserva", "entry_hash": "Hash SHA-256"}
+            ).style.format({"Monto": MONEY, "Reserva": "{:.0f}"}, na_rep="—"),
+            width="stretch", hide_index=True, height=320,
         )
 
-    # =========================================================================
-    # TAB 2: AUDITORÍA BITEMPORAL
-    # =========================================================================
-    with tab_bitemporal:
-        st.markdown("### ⏳ Capa 3: Core Bitemporal / ODS (Asserted Versioning)")
-        st.markdown(
-            "Combina **System Transaction Time** (`SysStartTime`, `SysEndTime` nativos) con "
-            "**Business Effective Time** (`ValidFrom`, `ValidTo`) para resolver requerimientos regulatorios CMF (C46/C55)."
-        )
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown("##### Saldos contables y disponibles (dos fases)")
+            st.caption("Las reservas PENDING reducen el saldo disponible sin alterar el contable hasta su liquidación.")
+            bal = db_layer.get_account_balances()
+            bal = bal[bal["contract_id"].isin([60300, 30101, 30102, 90210, 80450, 70100, 10001, 19901])]
+            st.dataframe(_fmt_money(bal[["account_id", "account_name", "contract_id", "debits_pending", "credits_pending",
+                                         "saldo_contable", "saldo_disponible"]].rename(columns={
+                "account_id": "Cuenta", "account_name": "Nombre", "contract_id": "Contrato",
+                "debits_pending": "Debe pendiente", "credits_pending": "Haber pendiente",
+                "saldo_contable": "Saldo contable", "saldo_disponible": "Saldo disponible"}),
+                ["Debe pendiente", "Haber pendiente", "Saldo contable", "Saldo disponible"]),
+                width="stretch", hide_index=True)
+        with c2:
+            st.markdown("##### Registro de idempotencia")
+            st.caption("El reintento de la compra de BTP (misma clave, mismo payload) fue respondido desde este "
+                       "registro sin generar un segundo cargo; un payload distinto con la misma clave se rechaza.")
+            idem = db_layer.get_idempotency_records(limit=20)
+            st.dataframe(idem[["idempotency_key", "operation", "status", "journal_entry_id", "payload_hash"]].rename(columns={
+                "idempotency_key": "Clave", "operation": "Operación", "status": "Estado",
+                "journal_entry_id": "Asiento", "payload_hash": "Hash payload"}),
+                width="stretch", hide_index=True)
 
-        st.info(
-            "💡 **Escenario de Prueba Forense Regulatoria:**\n"
-            "El crédito `#90210` de Distribuidora Central tenía al corte económico del **31-Dic-2024** un saldo original de **$45,000,000** "
-            "(reportado formalmente el **15-Ene-2025**). En Febrero se aplicó un abono extemporáneo retroactivo que redujo el saldo a **$42,000,000**. "
-            "Utiliza los controles inferiores para viajar en el tiempo y contrastar ambas aserciones."
-        )
+        c3, c4 = st.columns([1, 1])
+        with c3:
+            st.markdown("##### Transactional outbox")
+            ob = db_layer.get_outbox_status()
+            st.caption(f"{ob['total_events']:,} eventos publicados · {ob['inbox_events']:,} recibidos por el consumidor "
+                       "ODS (entrega effectively-once mediante inbox con clave única).")
+            st.dataframe(ob["recent"].rename(columns={"outbox_id": "Evento", "event_type": "Tipo",
+                                                      "aggregate_id": "Agregado", "journal_entry_id": "Asiento",
+                                                      "created_at": "Creado (UTC)"}),
+                         width="stretch", hide_index=True)
+        with c4:
+            st.markdown("##### Verificación criptográfica")
+            st.caption("Recalcula el hash de cada línea, de cada cabecera y el encadenamiento con el bloque previo.")
+            if is_chain_valid:
+                st.success(f"Integridad verificada en {len(audit_df):,} bloques.")
+            else:
+                st.error("Se detectaron bloques alterados o una ruptura de la cadena.")
+            st.dataframe(audit_df.tail(12).rename(columns={
+                "entry_id": "Asiento", "code": "Código", "kind": "Tipo", "prev_hash_actual": "Hash previo",
+                "expected_prev": "Esperado", "hash_recalculado": "Hash recalculado", "status": "Estado"}),
+                width="stretch", hide_index=True)
 
-        c_time1, c_time2 = st.columns(2)
-        with c_time1:
-            biz_date = st.date_input("1. Fecha Económica del Negocio (Valid Time):", value=date(2024, 12, 31))
-        with c_time2:
-            sys_mode = st.radio(
-                "2. Momento de Aserción del Sistema (Transaction Time):",
-                ["Como se reportó originalmente a CMF (15-Ene-2025)", "Como se conoce hoy con ajustes retrospectivos (Actual)"],
-                index=0
-            )
+        st.markdown("##### Líneas de detalle (multi-pata)")
+        postings = db_layer.get_ledger_postings(limit=60)
+        st.dataframe(_fmt_money(postings[["journal_entry_id", "line_number", "account_id", "contract_id", "posting_status",
+                                          "functional_debit", "functional_credit", "released_debit", "released_credit",
+                                          "row_hash"]].rename(columns={
+            "journal_entry_id": "Asiento", "line_number": "Línea", "account_id": "Cuenta", "contract_id": "Contrato",
+            "posting_status": "Estado", "functional_debit": "Debe", "functional_credit": "Haber",
+            "released_debit": "Debe liberado", "released_credit": "Haber liberado", "row_hash": "Hash de línea"}),
+            ["Debe", "Haber", "Debe liberado", "Haber liberado"]), width="stretch", hide_index=True, height=300)
 
-        sys_timestamp = "2025-01-15 12:00:00" if "15-Ene" in sys_mode else "2025-02-10 12:00:00"
-        biz_timestamp = f"{biz_date.strftime('%Y-%m-%d')} 12:00:00"
+    # ---------------------------------------------------------------------
+    with tabs[1]:
+        _section("Core bitemporal · Asserted Versioning Framework", "Capa 3 · ODS")
+        st.caption("Tiempo efectivo (valid_from / valid_to) y tiempo asertivo (asserted_from / asserted_to), con cierre "
+                   "9999-12-31 23:59:59.99. Un trigger impide solapamientos y sólo permite retirar aserciones.")
+        st.info("Caso de auditoría C46. El crédito OPER-COM-90210 se informó a la CMF con saldo de $45.000.000 al "
+                "31-12-2024. El 05-02-2025 se aplicó retroactivamente un abono de $3.000.000 recibido el 28-12-2024 "
+                "(asiento de ajuste con fecha valor 28-12-2024 y corrección bitemporal ligada a ese asiento).")
+        c1, c2 = st.columns(2)
+        with c1:
+            biz_date = st.date_input("Fecha económica (tiempo efectivo)", value=date(2024, 12, 31))
+        with c2:
+            assertion_options = {
+                "Según se informó a la CMF (15-01-2025)": "2025-01-15 12:00:00",
+                "Según se conoce después del ajuste (10-02-2025)": "2025-02-10 12:00:00",
+                "Hoy": db_layer.ts(db_layer.utc_now()),
+                "Posterior al corte de migración (02-01-2027)": "2027-01-02 12:00:00",
+            }
+            sys_mode = st.radio("Momento de aserción (tiempo asertivo, UTC)", list(assertion_options), index=0)
+        sys_ts = assertion_options[sys_mode]
+        biz_ts = f"{biz_date:%Y-%m-%d} 12:00:00"
+        tt = db_layer.query_bitemporal_time_travel(biz_ts, sys_ts)
+        st.markdown(f"##### Cartera vigente al {biz_date:%d-%m-%Y}, según lo asertado al {sys_ts[:16]} UTC")
+        st.dataframe(_fmt_money(tt[["contract_number", "partner_name", "product_type", "current_balance",
+                                    "undrawn_commitment", "annual_nominal_rate", "contract_status", "change_type",
+                                    "asserted_from", "asserted_to"]].rename(columns={
+            "contract_number": "Operación", "partner_name": "Contraparte", "product_type": "Producto",
+            "current_balance": "Saldo", "undrawn_commitment": "No girado", "annual_nominal_rate": "Tasa",
+            "contract_status": "Estado", "change_type": "Origen", "asserted_from": "Asertado desde",
+            "asserted_to": "Asertado hasta"}), ["Saldo", "No girado"]).format({"Tasa": "{:.2%}"}, subset=["Tasa"]),
+            width="stretch", hide_index=True)
+        st.caption("Las operaciones HIP-LEG-50100 y HIP-LEG-50101 se cargaron como aserción futura con corte "
+                   "01-01-2027 00:00: son invisibles para toda consulta anterior a ese instante.")
 
-        tt_results = db_layer.query_bitemporal_time_travel(biz_timestamp, sys_timestamp)
+        st.markdown("##### Historial bitemporal completo de OPER-COM-90210")
+        hist = db_layer.get_contract_bitemporal_history(90210)
+        st.dataframe(_fmt_money(hist[["current_balance", "annual_nominal_rate", "valid_from", "valid_to", "asserted_from",
+                                      "asserted_to", "change_type", "change_reason", "source_journal_entry_id"]].rename(columns={
+            "current_balance": "Saldo", "annual_nominal_rate": "Tasa", "valid_from": "Efectivo desde",
+            "valid_to": "Efectivo hasta", "asserted_from": "Asertado desde", "asserted_to": "Asertado hasta",
+            "change_type": "Operación AVF", "change_reason": "Motivo", "source_journal_entry_id": "Asiento"}),
+            ["Saldo"]).format({"Tasa": "{:.2%}", "Asiento": "{:.0f}"}, na_rep="—"), width="stretch", hide_index=True)
 
-        st.markdown(f"#### 🔍 Cartera Visible al corte económico `{biz_date}` bajo aserción `{sys_timestamp}`:")
-        st.dataframe(
-            tt_results[['contract_id', 'contract_number', 'partner_rut', 'partner_name', 'product_type', 
-                        'current_balance', 'annual_nominal_rate', 'contract_status', 'sys_start_time', 'sys_end_time']].style.format({
-                'current_balance': '${:,.2f}',
-                'annual_nominal_rate': '{:.2%}'
-            }),
-            width='stretch',
-            hide_index=True
-        )
+    # ---------------------------------------------------------------------
+    with tabs[2]:
+        _section("Data warehouse dimensional", "Capa 4 · Kimball")
+        st.caption("Hechos complementarios: snapshot periódico con reexpresiones (restatement_seq), postings "
+                   "transaccionales con secuencia por cuenta y marca de cierre diario, y flujos contractuales por banda CMF.")
+        facts, risk, partners = db_layer.get_dwh_facts_and_dims()
+        st.markdown("##### Snapshot de saldos de operaciones nominadas (todas las versiones)")
+        st.dataframe(_fmt_money(facts[["snapshot_date_key", "contract_number", "partner_name", "household_group_name",
+                                       "cmf_rating_category", "balance_clp", "regulatory_provision_clp",
+                                       "undrawn_commitment_clp", "pending_debits_clp", "hqla_level", "restatement_seq",
+                                       "snapshot_asserted_at"]].rename(columns={
+            "snapshot_date_key": "Fecha", "contract_number": "Operación", "partner_name": "Contraparte",
+            "household_group_name": "Grupo económico", "cmf_rating_category": "Cat.", "balance_clp": "Saldo",
+            "regulatory_provision_clp": "Provisión", "undrawn_commitment_clp": "No girado",
+            "pending_debits_clp": "Reservado", "hqla_level": "HQLA", "restatement_seq": "Versión",
+            "snapshot_asserted_at": "Conocido al (UTC)"}), ["Saldo", "Provisión", "No girado", "Reservado"]),
+            width="stretch", hide_index=True, height=330)
 
-        st.markdown("#### ⚖️ Cuadro Comparativo de Discrepancias Regulatorias:")
-        rep_orig = db_layer.query_bitemporal_time_travel(biz_timestamp, "2025-01-15 12:00:00")
-        rep_today = db_layer.query_bitemporal_time_travel(biz_timestamp, "2025-02-10 12:00:00")
-        
-        merged_audit = pd.merge(
-            rep_orig[['contract_id', 'contract_number', 'current_balance', 'contract_status']],
-            rep_today[['contract_id', 'current_balance', 'contract_status']],
-            on='contract_id',
-            suffixes=('_reportado_original', '_conocido_hoy')
-        )
-        merged_audit['delta_discrepancia'] = merged_audit['current_balance_conocido_hoy'] - merged_audit['current_balance_reportado_original']
-        merged_audit['diagnostico_cmf'] = np.where(
-            merged_audit['delta_discrepancia'] != 0,
-            "AJUSTE_EXTEMPORANEO_POST_CORTE",
-            "CONSISTENTE_SIN_OBSERVACIONES"
-        )
+        c1, c2 = st.columns(2)
+        with c1:
+            last = db_layer.latest_snapshot_date() or date.today()
+            pos = st.date_input("Fecha de posición para flujos", value=min(date(2025, 5, 25), last),
+                                min_value=db_layer.BOOK_START, max_value=last)
+            st.markdown("##### Flujos contractuales proyectados")
+            cf = db_layer.get_contractual_cashflows(pos)
+            st.dataframe(_fmt_money(cf[["contract_number", "cashflow_date_key", "cashflow_type", "direction",
+                                        "bucket_label", "total", "present_value_clp", "include_in_liquidity",
+                                        "include_in_irrbb"]].rename(columns={
+                "contract_number": "Operación", "cashflow_date_key": "Fecha flujo", "cashflow_type": "Tipo",
+                "direction": "Sentido", "bucket_label": "Banda", "total": "Monto", "present_value_clp": "Valor presente",
+                "include_in_liquidity": "Liquidez", "include_in_irrbb": "IRRBB"}), ["Monto", "Valor presente"]),
+                width="stretch", hide_index=True, height=300)
+        with c2:
+            pit = st.date_input("Fecha para saldo point-in-time", value=date(2025, 1, 31),
+                                min_value=db_layer.BOOK_START, max_value=last)
+            st.markdown("##### Saldo point-in-time (Kimball fig. 9.5)")
+            st.caption("Última transacción con marca de cierre diario por cuenta y contrato, con fecha contable "
+                       "menor o igual a la consultada.")
+            g = db_layer.get_point_in_time_gl_balances(pit)
+            g = g[~g["contract_number"].str.startswith("POOL-")]
+            st.dataframe(_fmt_money(g[["account_code", "account_name", "contract_number", "ultima_fecha_movimiento",
+                                       "account_sequence_number", "saldo"]].rename(columns={
+                "account_code": "Cuenta", "account_name": "Nombre", "contract_number": "Contrato",
+                "ultima_fecha_movimiento": "Último movimiento", "account_sequence_number": "Secuencia",
+                "saldo": "Saldo"}), ["Saldo"]), width="stretch", hide_index=True, height=300)
 
-        st.dataframe(
-            merged_audit.rename(columns={
-                'contract_id': 'ID Contrato',
-                'contract_number': 'N° Operación',
-                'current_balance_reportado_original': 'Saldo Declarado a CMF ($)',
-                'current_balance_conocido_hoy': 'Saldo Real Hoy ($)',
-                'delta_discrepancia': 'Diferencia ($)',
-                'diagnostico_cmf': 'Diagnóstico Forense'
-            }).style.format({
-                'Saldo Declarado a CMF ($)': '${:,.2f}',
-                'Saldo Real Hoy ($)': '${:,.2f}',
-                'Diferencia ($)': '${:+,.2f}'
-            }),
-            width='stretch',
-            hide_index=True
-        )
+        c3, c4 = st.columns(2)
+        with c3:
+            st.markdown("##### Minidimensión de riesgo")
+            st.dataframe(risk[["cmf_rating_category", "regulatory_status", "dpd_bucket", "provision_rate", "ltv_bucket"]]
+                         .rename(columns={"cmf_rating_category": "Categoría", "regulatory_status": "Estado",
+                                          "dpd_bucket": "Mora", "provision_rate": "Provisión", "ltv_bucket": "LTV"})
+                         .style.format({"Provisión": "{:.2%}"}), width="stretch", hide_index=True)
+        with c4:
+            st.markdown("##### Dimensión de contrapartes")
+            st.dataframe(partners[["partner_id", "tax_id", "full_name", "segment_name", "household_group_name"]]
+                         .rename(columns={"partner_id": "ID", "tax_id": "RUT", "full_name": "Nombre",
+                                          "segment_name": "Segmento", "household_group_name": "Grupo económico"}),
+                         width="stretch", hide_index=True)
 
-    # =========================================================================
-    # TAB 3: DWH DIMENSIONAL KIMBALL
-    # =========================================================================
-    with tab_dwh:
-        st.markdown("### 📊 Capa 4: Data Warehouse & Data Marts Dimensionales (Ralph Kimball)")
-        st.caption(
-            "Presentación dimensional con granularidad atómica, Clustered Columnstore Indexes (CCI) "
-            "y minidimensiones de riesgo para prevenir monstruos dimensionales SCD Tipo 2."
-        )
+    # ---------------------------------------------------------------------
+    with tabs[3]:
+        _section("Control de cargas y conciliación", "Capa 2 · staging")
+        st.markdown("##### Conciliación de tres vías (core · ledger · DWH)")
+        st.caption("Diferencia aceptada: exactamente 0,0000. Las carteras agregadas mantienen su saldo sólo en el "
+                   "ledger, por lo que se concilian ledger contra DWH.")
+        st.dataframe(_fmt_money(recon[["reconciliation_date", "contract_number", "core_balance", "ledger_balance",
+                                       "dwh_balance", "diff_core_ledger", "diff_ledger_dwh", "status"]].rename(columns={
+            "reconciliation_date": "Fecha", "contract_number": "Contrato", "core_balance": "Core", "ledger_balance": "Ledger",
+            "dwh_balance": "DWH", "diff_core_ledger": "Dif. core-ledger", "diff_ledger_dwh": "Dif. ledger-DWH",
+            "status": "Estado"}), ["Core", "Ledger", "DWH", "Dif. core-ledger", "Dif. ledger-DWH"]),
+            width="stretch", hide_index=True, height=320)
+        st.markdown("##### Bitácora de ejecución de lotes")
+        etl = db_layer.get_etl_execution_log()
+        st.dataframe(etl.rename(columns={
+            "batch_id": "Lote", "pipeline_name": "Proceso", "target_layer": "Capa", "source_entity": "Origen",
+            "target_entity": "Destino", "extract_start_time": "Inicio (UTC)", "extract_end_time": "Fin (UTC)",
+            "records_extracted": "Leídos", "records_loaded": "Cargados", "records_rejected": "Rechazados",
+            "status": "Estado", "reconciliation_diff": "Diferencia", "error_message": "Observación"}),
+            width="stretch", hide_index=True)
 
-        facts_df, risk_df, partners_df = db_layer.get_dwh_facts_and_dims()
+    # ---------------------------------------------------------------------
+    with tabs[4]:
+        _section("Reportes normativos", "C46 · C54 · C55 · C56")
+        last = db_layer.latest_snapshot_date() or date.today()
+        rep_date = st.date_input("Fecha de reporte", value=last, min_value=db_layer.BOOK_START, max_value=last,
+                                 key="rep_date")
 
-        col_dwh1, col_dwh2 = st.columns([1, 1])
-        with col_dwh1:
-            st.markdown("#### 🎯 Minidimensión de Riesgo CMF (`dwh.dim_risk_band`)")
-            st.caption("Valores discretos de clasificación CMF (A1..D2), DPD y tasa de provisión.")
-            st.dataframe(
-                risk_df[['risk_band_key', 'cmf_rating_category', 'regulatory_status', 'dpd_bucket', 'provision_rate', 'ltv_bucket']].style.format({
-                    'provision_rate': '{:.2%}'
-                }),
-                width='stretch',
-                hide_index=True
-            )
+        st.markdown("##### C55 · LCR oficial con topes de composición")
+        lcr, lcr_det = db_layer.compute_lcr_from_db(rep_date)
+        nsfr, _ = db_layer.compute_nsfr_from_db(rep_date)
+        k = st.columns(3) + st.columns(3)
+        k[0].metric("Nivel 1", f"${float(lcr.level1) / 1e6:,.0f} MM")
+        k[1].metric("Nivel 2A (post desc.)", f"${float(lcr.level2a_post_haircut) / 1e6:,.0f} MM")
+        k[2].metric("Nivel 2B (post desc.)", f"${float(lcr.level2b_post_haircut) / 1e6:,.0f} MM")
+        k[3].metric("Ajustes tope 15% / 40%",
+                    f"${float(lcr.adjustment_15pct_cap + lcr.adjustment_40pct_cap) / 1e6:,.0f} MM")
+        k[4].metric("Entradas excluidas (75%)", f"${float(lcr.inflow_cap_adjustment) / 1e6:,.0f} MM")
+        k[5].metric("LCR / NSFR", f"{float(lcr.lcr_pct or 0):.2f}% / {float(nsfr.nsfr_pct or 0):.2f}%")
 
-        with col_dwh2:
-            st.markdown("#### 👥 Dimensión Conformada de Socios (`dwh.dim_partner`)")
-            st.caption("Atributos demográficos estables gestionados bajo SCD Tipo 2.")
-            st.dataframe(
-                partners_df[['partner_key', 'partner_id', 'tax_id', 'full_name', 'segment_name', 'is_current']],
-                width='stretch',
-                hide_index=True
-            )
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("##### C54 · Descalce de plazos (base contractual)")
+            c54 = db_layer.get_c54_maturity_ladder(rep_date)
+            st.dataframe(c54.rename(columns={"bucket_label": "Banda", "ingresos": "Ingresos", "egresos": "Egresos",
+                                             "descalce": "Descalce", "descalce_acumulado": "Acumulado",
+                                             "limite": "Límite", "cumple": "Cumple"})
+                         .drop(columns=["bucket_code"]).style.format(
+                {c: "${:,.0f}" for c in ["Ingresos", "Egresos", "Descalce", "Acumulado", "Límite"]}, na_rep="—"),
+                width="stretch", hide_index=True)
+        with c2:
+            st.markdown("##### C56 · Riesgo de tasa en el libro de banca (IRRBB)")
+            c56 = db_layer.get_c56_irrbb(rep_date)
+            st.dataframe(c56.rename(columns={"escenario": "Escenario", "delta_eve": "Δ EVE", "delta_nii_12m": "Δ NII 12m",
+                                             "delta_eve_pct_tier1": "Δ EVE / Tier 1", "valor_atipico": "Atípico"})
+                         .style.format({"Δ EVE": "${:,.0f}", "Δ NII 12m": "${:,.0f}", "Δ EVE / Tier 1": "{:+.2f}%"}),
+                         width="stretch", hide_index=True)
 
-        st.markdown("---")
-        st.markdown("#### 📈 Tabla de Hechos: Snapshot Periódico de Saldos (`dwh.fact_account_balance_snapshot`)")
-        st.caption("Optimizada con Clustered Columnstore Index (CCI) y particionamiento mensual para reportería C46 y C55.")
-        st.dataframe(
-            facts_df.rename(columns={
-                'snapshot_date_key': 'Fecha Corte',
-                'contract_id': 'Contrato',
-                'partner_name': 'Cliente / Deudor',
-                'partner_rut': 'RUT',
-                'cmf_rating_category': 'Cat CMF',
-                'regulatory_status': 'Estado Riesgo',
-                'current_balance_clp': 'Saldo Cartera (CLP)',
-                'regulatory_provision': 'Provisión C46 (CLP)',
-                'is_hqla_eligible': 'Es HQLA',
-                'hqla_level': 'Nivel HQLA',
-                'nsfr_weighted_rsf_clp': 'FER Ponderado (CLP)'
-            }).style.format({
-                'Saldo Cartera (CLP)': '${:,.0f}',
-                'Provisión C46 (CLP)': '${:,.0f}',
-                'FER Ponderado (CLP)': '${:,.0f}'
-            }),
-            width='stretch',
-            hide_index=True
-        )
+        st.markdown("##### C46 · Provisiones: informado versus reexpresado")
+        c46_date = st.date_input("Cierre informado", value=date(2024, 12, 31), min_value=db_layer.BOOK_START,
+                                 max_value=last, key="c46_date")
+        c46 = db_layer.get_c46_provisions(c46_date, reported_at=datetime(2025, 1, 10, 12, 0))
+        st.caption("Versión informada: la vigente al 10-01-2025 12:00 UTC (envío del archivo de diciembre).")
+        st.dataframe(c46[["contract_number", "deudor", "categoria", "saldo_reportado", "saldo_hoy", "prov_reportada",
+                          "prov_hoy", "delta_provision", "diagnostico"]].rename(columns={
+            "contract_number": "Operación", "deudor": "Deudor", "categoria": "Cat.", "saldo_reportado": "Saldo informado",
+            "saldo_hoy": "Saldo vigente", "prov_reportada": "Provisión informada", "prov_hoy": "Provisión vigente",
+            "delta_provision": "Diferencia", "diagnostico": "Diagnóstico"}).style.format(
+            {c: "${:,.0f}" for c in ["Saldo informado", "Saldo vigente", "Provisión informada", "Provisión vigente",
+                                     "Diferencia"]}), width="stretch", hide_index=True)
 
-    # =========================================================================
-    # TAB 4: CONTROL ETL & RECONCILIACIÓN
-    # =========================================================================
-    with tab_etl:
-        st.markdown("### 🔄 Capa 2: Staging & Control Layer (Kimball Kitchen)")
-        st.caption(
-            "Gestión del linaje de datos, auditoría de ejecución de lotes, recuentos de cuadre "
-            "y reconciliación nocturna entre el Core Legado y el nuevo Ledger Inmutable."
-        )
-
-        etl_df = db_layer.get_etl_execution_log()
-        st.dataframe(
-            etl_df.rename(columns={
-                'batch_id': 'ID Lote',
-                'pipeline_name': 'Pipeline ETL',
-                'target_layer': 'Capa Destino',
-                'source_entity': 'Entidad Origen',
-                'target_entity': 'Entidad Destino',
-                'extract_start_time': 'Inicio',
-                'extract_end_time': 'Fin',
-                'records_extracted': 'Extraídos',
-                'records_loaded': 'Cargados',
-                'records_rejected': 'Rechazados',
-                'status': 'Estado Lote',
-                'reconciliation_diff': 'Diferencia ($)'
-            }),
-            width='stretch',
-            hide_index=True
-        )
-
-    # =========================================================================
-    # TAB 5: SCRIPTS T-SQL DE PRODUCCIÓN
-    # =========================================================================
-    with tab_sql:
-        st.markdown("### 📜 Scripts T-SQL de Nivel de Producción (SQL Server 2017)")
-        st.caption("Scripts listos para ejecutar en SQL Server Management Studio (SSMS) o automatizar vía CI/CD.")
-
+    # ---------------------------------------------------------------------
+    with tabs[5]:
+        _section("Scripts T-SQL de producción", "SQL Server 2017")
         sql_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sql")
-        sql_files = sorted([f for f in os.listdir(sql_dir) if f.endswith(".sql")])
-
-        script_sel = st.selectbox("Seleccionar Script para Inspeccionar:", sql_files, index=0)
-        
-        script_path = os.path.join(sql_dir, script_sel)
-        if os.path.exists(script_path):
-            with open(script_path, "r", encoding="utf-8") as f:
-                code_content = f.read()
-            
-            col_b1, col_b2 = st.columns([1, 4])
-            with col_b1:
-                st.download_button(
-                    label=f"📥 Descargar {script_sel}",
-                    data=code_content,
-                    file_name=script_sel,
-                    mime="text/plain"
-                )
-            st.code(code_content, language="sql")
+        sql_files = sorted(f for f in os.listdir(sql_dir) if f.endswith(".sql"))
+        script_sel = st.selectbox("Script", sql_files, index=0)
+        with open(os.path.join(sql_dir, script_sel), "r", encoding="utf-8") as f:
+            code_content = f.read()
+        st.download_button(label=f"Descargar {script_sel}", data=code_content, file_name=script_sel, mime="text/plain")
+        st.code(code_content, language="sql")

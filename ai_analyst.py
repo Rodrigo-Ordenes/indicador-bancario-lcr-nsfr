@@ -24,10 +24,13 @@ def generate_heuristic_executive_analysis(
     ratio_nombre: str,
     num_nombre: str,
     den_nombre: str,
-    granularidad: str
+    granularidad: str = "Diaria",
+    *args,
+    **kwargs
 ) -> str:
     """
-    Genera un análisis ejecutivo automatizado con lógica financiera bancaria rigurosa.
+    Genera un análisis ejecutivo automatizado con lógica financiera bancaria rigurosa
+    considerando los umbrales de 100% (mínimo), alerta interna (120%/105%) y apetito (150%/110%).
     """
     if not kpis:
         return "No hay suficientes datos históricos para estructurar el análisis."
@@ -39,53 +42,56 @@ def generate_heuristic_executive_analysis(
     delta_den = kpis['delta_den']
     holgura_pp = kpis['holgura_pp']
     holgura_monto = kpis['holgura_monto']
-    semaforo = kpis['semaforo']
+    
+    limite_norm = kpis.get('limite_normativo', 100.0)
+    limite_alerta = kpis.get('limite_interno', 120.0 if ratio_nombre == 'LCR' else 105.0)
+    apetito = kpis.get('apetito_riesgo', 150.0 if ratio_nombre == 'LCR' else 110.0)
 
     # 1. Diagnóstico de Cumplimiento
-    if ratio_act >= 105.0:
+    if ratio_act >= apetito:
         diagnostico = (
             f"El indicador **{ratio_nombre}** se sitúa en **{ratio_act:.2f}%**, manteniendo una posición "
-            f"altamente sólida y confortable frente al requerimiento normativo del 100.0% (+{holgura_pp:.2f} pp de holgura, "
-            f"equivalente a un colchón excedente de **${holgura_monto:,.0f} MM**)."
+            f"altamente sólida y confortable sobre el apetito por riesgo ({apetito:.0f}%) y el mínimo normativo del {limite_norm:.0f}% "
+            f"(holgura normativa de **+{holgura_pp:.2f} pp**, equivalente a un colchón excedente de **${holgura_monto:,.0f} MM**)."
         )
-    elif ratio_act >= 100.0:
+    elif ratio_act >= limite_alerta:
         diagnostico = (
-            f"El indicador **{ratio_nombre}** se ubica en **{ratio_act:.2f}%**, en cumplimiento estricto "
-            f"pero dentro de la zona de vigilancia activa (apetito interno fijado en 105.0%). "
-            f"La holgura normativa es de **+{holgura_pp:.2f} pp** (${holgura_monto:,.0f} MM)."
+            f"El indicador **{ratio_nombre}** registra **{ratio_act:.2f}%**, ubicándose en cumplimiento regulatorio "
+            f"y sobre el nivel de alerta interna ({limite_alerta:.0f}%), con una distancia de **{apetito - ratio_act:.2f} pp** "
+            f"frente al nivel óptimo de apetito ({apetito:.0f}%). Holgura frente al 100%: **+{holgura_pp:.2f} pp** (${holgura_monto:,.0f} MM)."
+        )
+    elif ratio_act >= limite_norm:
+        diagnostico = (
+            f"**Alerta interna ALCO**: El indicador **{ratio_nombre}** se sitúa en **{ratio_act:.2f}%**, por debajo del "
+            f"nivel de alerta ({limite_alerta:.0f}%), aunque aún en cumplimiento del mínimo CMF ({limite_norm:.0f}%). "
+            f"La holgura normativa remanente es de solo **+{holgura_pp:.2f} pp** (${holgura_monto:,.0f} MM). Se requiere vigilancia activa."
         )
     else:
         diagnostico = (
-            f"⚠️ **ALERTA CRÍTICA**: El indicador **{ratio_nombre}** registra **{ratio_act:.2f}%**, "
-            f"incumpliendo el límite regulatorio mínimo de 100.0% con un déficit de **{abs(holgura_pp):.2f} pp** "
+            f"**Incumplimiento normativo crítico**: El indicador **{ratio_nombre}** colapsa a **{ratio_act:.2f}%**, "
+            f"quebrantando el requerimiento regulatorio del {limite_norm:.0f}% con un déficit de **{abs(holgura_pp):.2f} pp** "
             f"(-${abs(holgura_monto):,.0f} MM). Requiere activación inmediata del plan de contingencia de liquidez."
         )
 
-    # 2. Atribución de Drivers (Numerador vs Denominador)
-    direccion = "aumento" if delta_ratio >= 0 else "contracción"
+    # 2. Atribución de Drivers
     if delta_ratio >= 0:
-        explicacion_driver = (
-            f"La variación positiva de **+{delta_ratio:.2f} pp** en el período {granularidad.lower()} fue explicada por: "
-        )
+        explicacion_driver = f"La variación positiva de **+{delta_ratio:.2f} pp** en el período {granularidad.lower()} fue impulsada por: "
     else:
-        explicacion_driver = (
-            f"La reducción de **{delta_ratio:.2f} pp** en el período {granularidad.lower()} obedeció a: "
-        )
+        explicacion_driver = f"La contracción de **{delta_ratio:.2f} pp** en el período {granularidad.lower()} obedeció a: "
 
     drivers_list = []
     if delta_num != 0:
         sign_num = "+" if delta_num > 0 else ""
-        impacto_num = "favoreciendo" if delta_num > 0 else "restando liquidez a"
-        drivers_list.append(f"Variación en {num_nombre} de **{sign_num}${delta_num:,.0f} MM** ({impacto_num} el ratio).")
+        impacto_num = "favoreciendo la posición de liquidez" if delta_num > 0 else "restando colchón de activos"
+        drivers_list.append(f"Variación en {num_nombre} de **{sign_num}${delta_num:,.0f} MM** ({impacto_num}).")
     if delta_den != 0:
         sign_den = "+" if delta_den > 0 else ""
-        impacto_den = "presionando a la baja el indicador" if delta_den > 0 else "aliviando la exigencia del indicador"
+        impacto_den = "presionando a la baja el ratio" if delta_den > 0 else "aliviando la exigencia requerida"
         drivers_list.append(f"Variación en {den_nombre} de **{sign_den}${delta_den:,.0f} MM** ({impacto_den}).")
 
-    # 3. Top drivers desde la descomposición detallada (si existe)
+    # 3. Top drivers desde la descomposición detallada
     detalle_bullets = []
     if len(df_detalle) > 0 and 'delta_ponderado' in df_detalle.columns:
-        # Mayor alza y mayor baja en detalle
         df_sorted = df_detalle.sort_values(by='delta_ponderado', ascending=False)
         top_alza = df_sorted.iloc[0]
         top_baja = df_sorted.iloc[-1]
@@ -99,39 +105,35 @@ def generate_heuristic_executive_analysis(
                 f"**Mayor reducción en cuentas:** *{top_baja['subcategoria']}* ({top_baja['componente']}) con ${top_baja['delta_ponderado']:,.0f} MM."
             )
 
-    # 4. Recomendaciones para ALCO y Mesa de Dinero
-    recomendaciones = []
-    if ratio_act < 105.0:
-        if ratio_nombre == "LCR":
-            recomendaciones.append("Incrementar la posición en Activos Nivel 1 (Pagarés BCCh / Bonos BTP) vía operaciones repo o captaciones mayoristas de plazo > 30 días.")
-            recomendaciones.append("Monitorear la renovación de depósitos institucionales no operacionales que vencen en el tramo de 30 días.")
-        else:
-            recomendaciones.append("Extender el plazo promedio del fondeo pasivo hacia horizontes superiores a 1 año para incrementar FED.")
-            recomendaciones.append("Limitar el crecimiento acelerado de colocaciones con alto ponderador RSF hasta recomponer el buffer.")
+    # 4. Recomendaciones para Mesa de Dinero / ALM
+    if ratio_act < limite_alerta:
+        rec_alm = (
+            "1. Frenar crecimiento en activos ilíquidos que consuman requerimientos a corto plazo.\n"
+            "2. Incentivar captación a plazo en tramos superiores a 30 días con clientes institucionales.\n"
+            "3. Evaluar monetización transitoria de cartera HQLA Nivel 2 o repos en Banco Central."
+        )
     else:
-        recomendaciones.append("Mantener la estructura actual de calce de liquidez y optimizar el costo de acarreo (carry cost) de los activos líquidos.")
-        recomendaciones.append("Verificar que la concentración de contrapartes mayoristas se mantenga dentro de los límites de apetito de riesgo.")
+        rec_alm = (
+            "1. Mantener la estructura de calce actual monitoreando renovaciones mayoristas relevantes.\n"
+            "2. Optimizar el costo de fondeo aprovechando el exceso de holgura sobre el apetito interno.\n"
+            "3. Verificar cupos en líneas de crédito contingentes corporativas."
+        )
 
-    # Ensamblar Markdown final
-    analysis_md = f"""
-### 📊 Diagnóstico Ejecutivo ALM ({granularidad})
+    # Ensamble del Markdown
+    reporte = f"""
+#### Diagnóstico de Posición y Cumplimiento
 {diagnostico}
 
-#### 🔍 Atribución del Movimiento
+#### Atribución de Factores Clave
 {explicacion_driver}
-- {"<br>- ".join(drivers_list)}
+- {'<br>- '.join(drivers_list) if drivers_list else 'Variaciones netas menores.'}
 
-"""
-    if detalle_bullets:
-        analysis_md += f"""#### 📌 Cuentas con Mayor Dinamismo
-- {"<br>- ".join(detalle_bullets)}
+{('#### Cuentas con Mayor Variación en el Período<br>' + '<br>'.join(detalle_bullets)) if detalle_bullets else ''}
 
+#### Acciones Recomendadas para el Comité ALCO
+{rec_alm}
 """
-
-    analysis_md += f"""#### 💡 Recomendaciones para Comité ALCO / Mesa de Dinero
-- {"<br>- ".join(recomendaciones)}
-"""
-    return analysis_md
+    return reporte
 
 
 def call_llm_copilot_analysis(
@@ -140,87 +142,77 @@ def call_llm_copilot_analysis(
     ratio_nombre: str,
     num_nombre: str,
     den_nombre: str,
-    granularidad: str,
+    granularidad: str = "Diaria",
     api_key: Optional[str] = None,
     api_base: Optional[str] = None,
-    model_name: str = "gpt-4o"
+    model_name: str = "gpt-4o",
+    *args,
+    **kwargs
 ) -> str:
     """
-    Invoca un LLM (OpenAI / Azure OpenAI / GitHub Copilot API) para generar un informe
-    ejecutivo de alta dirección estructurado y enriquecido.
+    Invoca un modelo LLM (OpenAI / Azure Copilot / GitHub Models) para redactar
+    un memorándum ejecutivo completo para la Alta Dirección.
     """
-    key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("GITHUB_TOKEN")
+    key = api_key or os.environ.get("OPENAI_API_KEY")
     if not key:
         return (
-            "⚠️ **API Key no configurada para Copilot / LLM.**\n\n"
-            "Para activar el análisis en tiempo real con Copilot / OpenAI, ingrese su API Key "
-            "en el panel lateral (Configuración de IA) o defina la variable de entorno `OPENAI_API_KEY`.\n\n"
-            "👉 *Se ha generado el análisis cuantitativo interno arriba de forma automática.*"
+            "> ⚠️ **API Key no configurada**: Para habilitar la redacción automática con IA "
+            "(OpenAI / Copilot), ingresa tu API Key en la barra lateral izquierda."
         )
 
     try:
         from openai import OpenAI
+        client = OpenAI(
+            api_key=key,
+            base_url=api_base if api_base and len(api_base.strip()) > 0 else None
+        )
 
-        client_kwargs = {"api_key": key}
-        if api_base:
-            client_kwargs["base_url"] = api_base
-
-        client = OpenAI(**client_kwargs)
-
-        # Preparar resumen de datos para el prompt
-        summary_text = f"""
-        Indicador Financiero: {ratio_nombre} ({granularidad})
-        Valor Actual: {kpis['ratio_actual']:.2f}%
-        Valor Período Anterior: {kpis['ratio_anterior']:.2f}%
-        Variación Delta: {kpis['delta_ratio']:+.2f} pp ({kpis['delta_ratio_pct']:+.2f}%)
-        
-        Componente {num_nombre}:
-        - Monto Actual: ${kpis['num_actual']:,.0f} MM
-        - Variación: {kpis['delta_num']:+,.0f} MM ({kpis['delta_num_pct']:+.2f}%)
-        
-        Componente {den_nombre}:
-        - Monto Actual: ${kpis['den_actual']:,.0f} MM
-        - Variación: {kpis['delta_den']:+,.0f} MM ({kpis['delta_den_pct']:+.2f}%)
-        
-        Holgura sobre Mínimo Normativo CMF (100%): {kpis['holgura_pp']:+.2f} pp
-        Colchón Excedente: ${kpis['holgura_monto']:+,.0f} MM
-        Semáforo: {kpis['semaforo']}
-        """
-
-        # Agregar top 5 cuentas por variación si están disponibles
+        top_cuentas_str = ""
         if len(df_detalle) > 0 and 'delta_ponderado' in df_detalle.columns:
-            top_var = df_detalle.sort_values(by='delta_ponderado', ascending=False)[
-                ['componente', 'categoria', 'subcategoria', 'monto_ponderado', 'delta_ponderado']
-            ].head(5).to_string(index=False)
-            summary_text += f"\n\nTop Cuentas y Variaciones:\n{top_var}"
+            top_movs = df_detalle.sort_values(by=abs(df_detalle['delta_ponderado']), ascending=False).head(5)
+            lineas = [f"- {r['subcategoria']} ({r['componente']}): Δ ${r['delta_ponderado']:+,.0f} MM (Total: ${r['monto_ponderado']:,.0f} MM)"
+                      for _, r in top_movs.iterrows()]
+            top_cuentas_str = "\n".join(lineas)
 
-        prompt = f"""
-        Eres el Chief Risk Officer (CRO) y Director de ALM (Asset & Liability Management) de un banco líder.
-        Escribe un memorándum ejecutivo conciso, elegante y de alto impacto para la Gerencia General y el Comité ALCO
-        analizando los siguientes resultados del indicador {ratio_nombre}:
+        prompt_system = (
+            "Eres el Chief Financial Officer (CFO) y Head of Financial Risk de un banco internacional supervisado bajo Basilea III y CMF. "
+            "Redacta un Memorándum Ejecutivo formal y conciso para la Alta Dirección y el Comité ALCO, "
+            "explicando los movimientos del ratio de liquidez, analizando los principales drivers y entregando acciones accionables."
+        )
 
-        {summary_text}
+        prompt_user = f"""
+DATOS DEL PERÍODO ({granularidad.upper()}):
+- Indicador: {ratio_nombre}
+- Nivel Actual: {kpis['ratio_actual']:.2f}% (Período anterior: {kpis['ratio_anterior']:.2f}%, Variación: {kpis['delta_ratio']:+.2f} pp)
+- {num_nombre} (Numerador): ${kpis['num_actual']:,.0f} MM (Variación: ${kpis['delta_num']:+,.0f} MM)
+- {den_nombre} (Denominador): ${kpis['den_actual']:,.0f} MM (Variación: ${kpis['delta_den']:+,.0f} MM)
+- Mínimo Normativo CMF: {kpis.get('limite_normativo', 100.0):.0f}%
+- Alerta Interna: {kpis.get('limite_interno', 120.0 if ratio_nombre=='LCR' else 105.0):.0f}%
+- Apetito por Riesgo: {kpis.get('apetito_riesgo', 150.0 if ratio_nombre=='LCR' else 110.0):.0f}%
+- Holgura Regulatoria: {kpis['holgura_pp']:+.2f} pp (${kpis['holgura_monto']:+,.0f} MM)
+- Semáforo Actual: {kpis['semaforo']}
 
-        Estructura tu informe exactamente en:
-        1. 🏛️ **Resumen Ejecutivo para la Alta Dirección** (1 párrafo de síntesis clara sobre cumplimiento y solidez).
-        2. 🔍 **Diagnóstico de Atribución y Sensibilidad** (explicar matemáticamente qué componente originó la variación).
-        3. ⚠️ **Riesgos Emergentes y Pruebas de Estrés** (qué vulnerabilidades o concentraciones vigilar).
-        4. 📋 **Plan de Acción para la Mesa de Dinero / Fondeo** (2 a 3 recomendaciones tácticas de tesorería y balance).
+PRINCIPALES MOVIMIENTOS EN CUENTAS:
+{top_cuentas_str or "Sin movimientos relevantes desglosados."}
 
-        Mantén un tono estrictamente bancario, profesional y cuantitativo.
-        """
+INSTRUCCIONES DE FORMATO:
+1. Resumen Ejecutivo (en 2 líneas clave).
+2. Diagnóstico de Cumplimiento y Holguras frente a umbrales (100%, alerta y apetito).
+3. Atribución de Drivers (Numerador vs Denominador y cuentas principales).
+4. Acciones y Estrategia de Liquidez Recomendada para la Mesa de Dinero.
+Redacta en español profesional, conciso y técnico.
+"""
 
         response = client.chat.completions.create(
             model=model_name,
             messages=[
-                {"role": "system", "content": "Eres un experto cuantitativo en riesgo bancario, regulación de Basilea III y gestión ALM."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": prompt_system},
+                {"role": "user", "content": prompt_user}
             ],
             temperature=0.2,
             max_tokens=900
         )
-
         return response.choices[0].message.content
 
     except Exception as e:
-        return f"⚠️ **Error al conectar con el servicio de IA (Copilot/OpenAI):** {str(e)}"
+        return f"> ❌ **Error al consultar Copilot / OpenAI API**: {str(e)}"

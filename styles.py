@@ -125,9 +125,11 @@ CUSTOM_CSS = f"""
     .conclusion {{ border: 1px solid var(--c); padding: 14px 18px; font-size: 15px; line-height: 1.55; margin: 10px 0; }}
 
     /* Pestañas, botones, métricas, tablas */
-    .stTabs [data-baseweb="tab-list"] {{ gap: 2px; border-bottom: 1px solid {BBG_BORDER}; }}
-    .stTabs [data-baseweb="tab"] {{ height: 40px; padding: 0 16px; font-weight: 600; font-size: 13.5px; color: {BBG_MUTED}; border-radius: 0; }}
-    .stTabs [aria-selected="true"] {{ color: {BBG_TEXT} !important; border-bottom: 2px solid {BBG_ORANGE} !important; }}
+    .stTabs [data-baseweb="tab-list"], div[data-testid="stTabs"] [role="tablist"] {{ gap: 2px; border-bottom: 1px solid {BBG_BORDER}; }}
+    .stTabs [data-baseweb="tab"], div[data-testid="stTab"] {{ height: 40px; padding: 0 16px; font-weight: 600;
+        font-size: 13.5px; color: {BBG_MUTED}; border-radius: 0; }}
+    .stTabs [aria-selected="true"], div[data-testid="stTab"][aria-selected="true"] {{ color: {BBG_TEXT} !important;
+        border-bottom: 2px solid {BBG_ORANGE} !important; }}
     .stButton > button, .stDownloadButton > button {{ background: {BBG_BLACK} !important; color: {BBG_TEXT} !important;
         border: 1px solid {BBG_BORDER} !important; border-radius: 0 !important; font-weight: 600 !important; }}
     .stButton > button:hover, .stDownloadButton > button:hover {{ border-color: {BBG_BLUE} !important; color: {BBG_BLUE} !important; }}

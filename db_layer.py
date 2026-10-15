@@ -2730,8 +2730,12 @@ def _line_label(row) -> str:
 
 
 def _ladder_nsfr_factor(row, ladders: dict, buckets: List[dict]) -> Decimal:
-    """Factor NSFR de una cartera agregada: promedio de los factores por banda ponderado por su perfil de vencimientos."""
-    profile = ladders.get(row["product_code"])
+    """
+    Factor NSFR. Carteras agregadas (POOL-*): promedio de los factores por banda
+    ponderado por su perfil de vencimientos. Contratos nominados: factor según su
+    vencimiento residual contractual. Misma regla en dwh.vw_c55_nsfr_components_daily.
+    """
+    profile = ladders.get(row["product_code"]) if row["contract_number"].startswith("POOL") else None
     f = {"LT_6M": i2f(row["nsfr_factor_lt_6m_e6"]), "6M_1Y": i2f(row["nsfr_factor_6m_1y_e6"]),
          "GE_1Y": i2f(row["nsfr_factor_ge_1y_e6"])}
     if not profile:

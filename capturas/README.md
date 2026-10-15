@@ -1,28 +1,34 @@
-# Catálogo de Capturas de Pantalla — Panel Interactivo de Liquidez y Reporte ALCO
+# Capturas del panel de liquidez
 
-Este directorio reúne las capturas de pantalla de alta resolución que documentan de manera integral todas las vistas del sistema de reportería financiera y gestión de balance (CMF / Basilea III), diseñadas bajo la paleta **Bloomberg Terminal Dark**, además de la renderización del informe oficial en PDF descargable.
+Generadas con `generate_capturas.py` el 15-10-2026 14:51 a partir del código y la base actuales.
 
----
+| # | Archivo | Módulo | Pestaña | Contenido |
+|---|---|---|---|---|
+| 01 | [`01_LCR_Indicadores_y_Evolucion.png`](./01_LCR_Indicadores_y_Evolucion.png) | 1 · Panel LCR | Indicadores y evolución | Indicadores LCR, ALAC y NAF con variación vs cierre anterior, situación frente a umbrales (100% regulatorio, 120% alerta, 150% apetito), evolución, variaciones y comparación de períodos. |
+| 02 | [`02_LCR_Descomposicion.png`](./02_LCR_Descomposicion.png) | 1 · Panel LCR | Descomposición | Componentes de ALAC y NAF: monto actual y anterior, variación absoluta y %, impacto en el LCR y principales componentes que explican el cambio. |
+| 03 | [`03_LCR_Pruebas_de_Tension_Severo.png`](./03_LCR_Pruebas_de_Tension_Severo.png) | 1 · Panel LCR | Pruebas de tensión | Escenario severo: shocks por componente, recálculo con topes Basilea III, impacto individual, comparación de escenarios y registro trazable. |
+| 04 | [`04_LCR_Proyecciones.png`](./04_LCR_Proyecciones.png) | 1 · Panel LCR | Proyecciones | Proyección del LCR bajo escenarios base, adverso y severo con banda del 95%, cruces de umbrales y supuestos. |
+| 05 | [`05_NSFR_Indicadores_y_Evolucion.png`](./05_NSFR_Indicadores_y_Evolucion.png) | 2 · Panel NSFR | Indicadores y evolución | Indicadores NSFR, FED y FER con umbrales (100% regulatorio, 105% alerta), evolución y comparación. |
+| 06 | [`06_NSFR_Descomposicion.png`](./06_NSFR_Descomposicion.png) | 2 · Panel NSFR | Descomposición | Componentes de FED y FER con variaciones y factores que explican el cambio. |
+| 07 | [`07_NSFR_Pruebas_de_Tension_Adverso.png`](./07_NSFR_Pruebas_de_Tension_Adverso.png) | 2 · Panel NSFR | Pruebas de tensión | Escenario adverso sobre FED y FER con impacto por componente. |
+| 08 | [`08_NSFR_Proyecciones.png`](./08_NSFR_Proyecciones.png) | 2 · Panel NSFR | Proyecciones | Proyección del NSFR bajo tensión y con montos históricos de FED y FER. |
+| 09 | [`09_Transversal_Puente_de_Variaciones.png`](./09_Transversal_Puente_de_Variaciones.png) | 3 · Análisis transversal | Puente de variaciones | Puente del indicador por categoría con contribuciones positivas, negativas y residual por interacción y topes. |
+| 10 | [`10_Transversal_Holgura.png`](./10_Transversal_Holgura.png) | 3 · Análisis transversal | Holgura frente a límites | Distancia y holgura monetaria frente a cada umbral, días consecutivos bajo alerta y monto requerido. |
+| 11 | [`11_Transversal_Precision_Proyecciones.png`](./11_Transversal_Precision_Proyecciones.png) | 3 · Análisis transversal | Precisión de proyecciones | Backtesting fuera de muestra: MAE, RMSE, MAPE, sesgo y cobertura del intervalo por método. |
+| 12 | [`12_Transversal_Concentracion.png`](./12_Transversal_Concentracion.png) | 3 · Análisis transversal | Concentración y vulnerabilidad | Concentración (HHI, top 5), volatilidad histórica y dependencia de fondeo mayorista. |
+| 13 | [`13_Transversal_Resumen_Ejecutivo.png`](./13_Transversal_Resumen_Ejecutivo.png) | 3 · Análisis transversal | Resumen ejecutivo | Situación consolidada, conclusión, movimientos, indicadores próximos a umbrales, deterioro, escenario adverso y registro de observaciones. |
+| 14 | [`14_Informe_PDF.png`](./14_Informe_PDF.png) | 4 · Informe PDF | — | Configuración del informe: fecha de corte, período, escenarios y observaciones. |
+| 15 | [`15_Calidad_y_Trazabilidad.png`](./15_Calidad_y_Trazabilidad.png) | 5 · Calidad y trazabilidad de datos | — | Controles de calidad previos al cálculo y arquitectura de datos (ledger, core bitemporal, DWH). |
 
-## 📸 Índice de Capturas del Sistema
+## Informe PDF de ejemplo
 
-| # | Archivo | Módulo / Sección | Descripción Funcional |
-| :-: | :--- | :--- | :--- |
-| **01** | [`01_LCR_Indicadores_y_Evolucion.png`](./01_LCR_Indicadores_y_Evolucion.png) | **Panel LCR** | Tarjetas KPI Bloomberg (LCR, ALAC, NAF, Semáforo CMF), gráfico de evolución temporal con los 3 umbrales regulatorios (100% legal, 120% alerta interna, 150% apetito), composición dual y variaciones periódicas. |
-| **02** | [`02_LCR_Descomposicion_y_TopDrivers.png`](./02_LCR_Descomposicion_y_TopDrivers.png) | **Panel LCR** | Desglose por partidas de ALAC y NAF con metodología de cierre diario (Cierre de Hoy vs Cierre de Ayer), factores explicativos (Top Drivers de alzas y bajas) y tabla detallada con factores de ponderación. |
-| **03** | [`03_LCR_Pruebas_de_Tension_Stress.png`](./03_LCR_Pruebas_de_Tension_Stress.png) | **Panel LCR** | Simulador de pruebas de tensión interactivo con shocks de activos y pasivos, recálculo automático y evaluación de escenarios Base, Adverso y Severo. |
-| **04** | [`04_LCR_Proyecciones_Econometricas.png`](./04_LCR_Proyecciones_Econometricas.png) | **Panel LCR** | Proyección econométrica univariada (modelo Holt) a 30-180 días con cono de incertidumbre al 95% y evaluación frente a límites normativos. |
-| **05** | [`05_NSFR_Indicadores_y_Evolucion.png`](./05_NSFR_Indicadores_y_Evolucion.png) | **Panel NSFR** | Tarjetas ejecutivas NSFR, Fondeo Disponible (FED), Fondeo Requerido (FER), gráfico de tendencia con umbrales (100% y 105% alerta) y comparador directo de períodos. |
-| **06** | [`06_NSFR_Descomposicion_y_TopDrivers.png`](./06_NSFR_Descomposicion_y_TopDrivers.png) | **Panel NSFR** | Descomposición de partidas de balance a largo plazo (FED y FER) con variación del día respecto a ayer y principales cuentas explicativas. |
-| **07** | [`07_NSFR_Pruebas_de_Tension_Stress.png`](./07_NSFR_Pruebas_de_Tension_Stress.png) | **Panel NSFR** | Evaluación de sensibilidad estructural del balance bancario frente a caídas de pasivos estables o incremento de colocaciones. |
-| **08** | [`08_Transversal_Waterfall_Bridge.png`](./08_Transversal_Waterfall_Bridge.png) | **Análisis Transversal** | Gráfico de cascada (Waterfall Bridge) que descompone matemáticamente el cambio del ratio en: Efecto Activo, Efecto Pasivo y Término de Interacción. |
-| **09** | [`09_Transversal_Monitoreo_Multiumbral.png`](./09_Transversal_Monitoreo_Multiumbral.png) | **Análisis Transversal** | Matriz de holguras monetarias y distancia en puntos porcentuales frente a los 3 niveles de control (Apetito, Alerta, Mínimo CMF) y estadísticas de alertas históricas. |
-| **10** | [`10_Transversal_Backtesting_Modelos.png`](./10_Transversal_Backtesting_Modelos.png) | **Análisis Transversal** | Evaluación comparativa de modelos econométricos en ventanas históricas (MAE, MAPE y RMSE para Holt, Regresión Lineal y Media Móvil). |
-| **11** | [`11_Transversal_Concentracion_HHI.png`](./11_Transversal_Concentracion_HHI.png) | **Análisis Transversal** | Curva de Pareto y cálculo del Índice de Herfindahl-Hirschman (HHI) para evaluar la concentración y volatilidad histórica de contrapartes y fuentes de financiamiento. |
-| **12** | [`12_Transversal_Resumen_Ejecutivo_Copilot.png`](./12_Transversal_Resumen_Ejecutivo_Copilot.png) | **Análisis Transversal** | Diagnóstico cualitativo automático con lógica financiera bancaria y conector a Copilot / LLM para redacción de memorándums formales. |
-| **13** | [`13_Exportar_Informe_PDF_Configuracion.png`](./13_Exportar_Informe_PDF_Configuracion.png) | **Exportación PDF** | Vista de configuración de notas gerenciales, parámetros de simulación y botón de descarga del informe consolidado. |
-| **14** | [`14_Auditoria_Core_Banking_Bitemporal.png`](./14_Auditoria_Core_Banking_Bitemporal.png) | **Auditoría & Core** | Panel de supervisión de la arquitectura bancaria en 4 capas desacopladas, integridad criptográfica (SHA-256), bitemporalidad ODS y linaje regulatorio. |
-| **15** | [`15_Reporte_Ejecutivo_ALCO_Pagina_1.png`](./15_Reporte_Ejecutivo_ALCO_Pagina_1.png) | **Reporte PDF Oficial** | Captura a 300 DPI de la Página 1 del reporte PDF oficial: Indicadores principales, tabla de holguras multiumbrales y gráficos consolidados de evolución y estrés ALM. |
+[`Informe_Liquidez_LCR_NSFR_ejemplo.pdf`](./Informe_Liquidez_LCR_NSFR_ejemplo.pdf)
 
----
-*Generado automáticamente para el repositorio institucional de Gestión de Riesgo Financiero y Balance Bancario.*
+| Página |
+|---|
+| [`PDF_pagina_1.png`](./PDF_pagina_1.png) |
+| [`PDF_pagina_2.png`](./PDF_pagina_2.png) |
+| [`PDF_pagina_3.png`](./PDF_pagina_3.png) |
+| [`PDF_pagina_4.png`](./PDF_pagina_4.png) |
+| [`PDF_pagina_5.png`](./PDF_pagina_5.png) |
+| [`PDF_pagina_6.png`](./PDF_pagina_6.png) |

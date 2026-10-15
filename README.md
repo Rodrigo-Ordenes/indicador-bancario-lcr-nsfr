@@ -103,6 +103,32 @@ Mínimo regulatorio: línea continua; alerta: discontinua; apetito: punteada.
 
 Para conectar SQL Server: `CORE_BANKING_SQLSERVER_URL="mssql+pyodbc://…"`.
 
+### Scripts SQL Server 2017 (ejecutar en orden)
+
+| Script | Contenido principal |
+|---|---|
+| `00` | Base, RCSI, esquemas, roles y partición mensual `pf_monthly_date_key` |
+| `01` | Ledger inmutable: `oltp.usp_post_atomic_journal_entry` (TVP, idempotencia, outbox, dos fases), resolución y expiración de reservas, verificación SHA-256 |
+| `02` | Bitácora de lotes, aterrizaje CDC, checksum de fila, inbox y conciliación |
+| `03` | Core bitemporal AVF: insert, update, corrección, aserción futura e integridad sin solapamientos |
+| `04` | DWH Kimball: dimensiones, tratamientos Basilea III y tres hechos columnstore particionados |
+| `05` | `dwh.vw_c55_*_components_daily`, `dwh.vw_cmf_c55_lcr_nsfr_official` (topes del Anexo 1), C46, C54, C56 y saldo point-in-time |
+| `06` | CDC del legado y del outbox, backfill de cierres, migración con aserción diferida, publicación por SWITCH PARTITION y conciliación de cuatro vías |
+
+Las vistas de `05` replican exactamente la lógica de `regulatory_engine.py` y `db_layer.py`;
+`data_loader.py` recalcula LCR y NSFR desde ellas y alerta ante cualquier diferencia. Los scripts no
+se han ejecutado contra una instancia de SQL Server en este repositorio: valídelos en un ambiente de
+pruebas antes de producción.
+
+### Capturas de documentación
+
+```bash
+.venv/bin/python generate_capturas.py
+```
+
+Levanta su propia instancia del panel, recorre cada vista con Chrome headless y actualiza
+`capturas/` (vistas, informe PDF de ejemplo y catálogo). Las capturas manuales se conservan.
+
 ## Pruebas
 
 ```bash

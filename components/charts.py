@@ -140,7 +140,9 @@ def impact_chart(df: pd.DataFrame, value_col: str, label_col: str, title: str, t
         text=[f"{v:+.2f} {unit}" for v in d[value_col]], textposition="outside",
         textfont=dict(family=MONO, size=11), cliponaxis=False,
         hovertemplate=f"%{{customdata}}<br>%{{x:+.3f}} {unit}<extra></extra>"))
-    fig.update_xaxes(ticksuffix=f" {unit}")
+    lo, hi = min(0.0, float(d[value_col].min())), max(0.0, float(d[value_col].max()))
+    pad = (hi - lo) * 0.25 or 1.0                     # espacio para la etiqueta fuera de la barra
+    fig.update_xaxes(ticksuffix=f" {unit}", range=[lo - (pad if lo < 0 else 0), hi + (pad if hi > 0 else 0)])
     fig.update_yaxes(automargin=True)
     return _layout(fig, title, max(300, 34 * len(d) + 120))
 

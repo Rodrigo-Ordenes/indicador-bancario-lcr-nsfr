@@ -1,537 +1,262 @@
 """
 components/charts.py
 ====================
-Generación de gráficos interactivos con Plotly para análisis de liquidez y balance.
-Diseñados bajo la paleta oficial Bloomberg Terminal Dark:
-- Base Negra: #000000
-- Superficie Gráficos: #0D0D0D
-- Rejilla: #222222
-- Rojo Bloomberg (NAF / FER / Límite 100%): #fe443d
-- Azul Bloomberg (Indicador Principal): #0168ff
-- Menta / Turquesa Bloomberg (ALAC / FED / Superávit): #4af6c4
-- Naranja Bloomberg (Apetito 150% / 110%): #fb8b1f
-- Amarillo / Ámbar Bloomberg (Alerta 120% / 105%): #ffd15c
+Gráficos Plotly con la paleta Bloomberg Terminal (negro, azul, rojo, menta, naranja).
+
+Convención visual común a LCR y NSFR:
+- Indicador (LCR / NSFR): azul. Numerador (ALAC / FED): menta. Denominador (NAF / FER): rojo.
+- Umbrales: mínimo regulatorio en rojo (línea continua), alerta interna en naranja
+  (discontinua), apetito por riesgo en menta (punteada).
+- Datos reales: línea continua. Proyecciones: línea discontinua con banda de
+  incertidumbre. Simulaciones: naranja.
 """
 
+from typing import Dict, List, Optional
+
+import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import pandas as pd
-import numpy as np
-from typing import Dict, Any, List, Optional
 
-# Paleta Bloomberg Terminal Oficial
-BBG_BLACK = "#000000"
-BBG_PLOT_BG = "#0D0D0D"
-BBG_GRID = "#222222"
-BBG_TEXT = "#FFFFFF"
-BBG_MUTED = "#A0A0A0"
+from styles import BBG_BLACK, BBG_BLUE, BBG_BORDER, BBG_MINT, BBG_MUTED, BBG_ORANGE, BBG_RED, BBG_TEXT
 
-COLOR_BLUE = "#0168ff"     # Azul Bloomberg: indicador principal
-COLOR_RED = "#fe443d"      # Rojo Bloomberg: salidas / requerimientos / 100%
-COLOR_MINT = "#4af6c4"     # Menta Bloomberg: activos / fondos disponibles
-COLOR_ORANGE = "#fb8b1f"   # Naranja Bloomberg: apetito de riesgo
-COLOR_GOLD = "#ffd15c"     # Amarillo Bloomberg: alerta interna
+GRID = "#1A1A1A"
+FONT = "IBM Plex Sans, sans-serif"
+MONO = "IBM Plex Mono, monospace"
+DASH = {"Regulatorio": "solid", "Interno: alerta": "dash", "Interno: apetito": "dot"}
+SCENARIO_COLOR = {"Base": BBG_BLUE, "Adverso": BBG_ORANGE, "Severo": BBG_RED}
 
 
-def _apply_bloomberg_layout(fig: go.Figure, title_text: str) -> go.Figure:
-    """Aplica formato base de terminal Bloomberg a cualquier figura."""
+def rgba(hex_color: str, alpha: float) -> str:
+    h = hex_color.lstrip("#")
+    return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {alpha})"
+
+
+def _layout(fig: go.Figure, title: str, height: int = 420) -> go.Figure:
     fig.update_layout(
-        template="plotly_dark",
-        title=dict(
-            text=f"<b>{title_text.upper()}</b>",
-            x=0.01, xanchor="left", y=0.97, yanchor="top",
-            font=dict(size=14, color="#FFFFFF", family="IBM Plex Sans, sans-serif")
-        ),
-        paper_bgcolor=BBG_BLACK,
-        plot_bgcolor=BBG_PLOT_BG,
-        font=dict(color=BBG_TEXT, family="IBM Plex Sans, sans-serif"),
-        margin=dict(l=50, r=45, t=65, b=45),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            font=dict(size=11, color=BBG_TEXT, family="IBM Plex Mono, monospace"),
-            bgcolor="rgba(0,0,0,0.5)"
-        ),
-        hoverlabel=dict(
-            bgcolor="#1A1A1A",
-            font_size=12,
-            font_family="IBM Plex Mono, monospace",
-            font_color="#FFFFFF"
-        )
+        template="plotly_dark", height=height, paper_bgcolor=BBG_BLACK, plot_bgcolor=BBG_BLACK,
+        title=dict(text=title, x=0.0, xanchor="left", y=0.98, yanchor="top",
+                   font=dict(size=14, color=BBG_TEXT, family=FONT)),
+        font=dict(color=BBG_TEXT, family=FONT, size=12),
+        margin=dict(l=55, r=30, t=72, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1, font=dict(size=11)),
+        hoverlabel=dict(bgcolor=BBG_BLACK, bordercolor=BBG_BORDER, font=dict(family=MONO, size=12)),
     )
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor=BBG_GRID,
-        gridwidth=1,
-        zeroline=False,
-        tickfont=dict(color=BBG_MUTED, family="IBM Plex Mono, monospace", size=10)
-    )
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor=BBG_GRID,
-        gridwidth=1,
-        zeroline=False,
-        tickfont=dict(color=BBG_MUTED, family="IBM Plex Mono, monospace", size=10)
-    )
+    fig.update_xaxes(showgrid=True, gridcolor=GRID, zeroline=False, linecolor=BBG_BORDER,
+                     tickfont=dict(color=BBG_MUTED, family=MONO, size=11))
+    fig.update_yaxes(showgrid=True, gridcolor=GRID, zeroline=False, linecolor=BBG_BORDER,
+                     tickfont=dict(color=BBG_MUTED, family=MONO, size=11))
     return fig
 
 
-def plot_indicator_trend(
-    df: pd.DataFrame, 
-    fecha_col: str, 
-    ratio_col: str, 
-    ratio_nombre: str, 
-    limite_normativo: float = 100.0, 
-    limite_interno: float = 120.0,
-    apetito_riesgo: float = 150.0,
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de tendencia principal del ratio con los tres umbrales definidos:
-    - 100%: Mínimo normativo (Rojo #fe443d)
-    - Alerta interna (120% LCR / 105% NSFR) (Amarillo #ffd15c)
-    - Apetito de riesgo (150% LCR / 110% NSFR) (Naranja #fb8b1f)
-    """
+def _threshold_lines(fig, umbrales, row=None, col=None, x_label_pos="right"):
+    for u in umbrales:
+        kw = dict(y=u.valor, line=dict(color=u.color, width=1.4, dash=DASH[u.tipo]),
+                  annotation_text=f"{u.nombre} {u.valor:.0f}%", annotation_position=f"top {x_label_pos}",
+                  annotation_font=dict(color=u.color, size=10.5, family=MONO))
+        if row:
+            kw.update(row=row, col=col)
+        fig.add_hline(**kw)
+
+
+# -----------------------------------------------------------------------------
+# Evolución y variaciones
+# -----------------------------------------------------------------------------
+
+def evolution_chart(closes: pd.DataFrame, ind, umbrales, granularidad: str) -> go.Figure:
+    """Panel superior: indicador con umbrales. Panel inferior: numerador y denominador (MM$)."""
+    mode = "lines" if len(closes) > 60 else "lines+markers"
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.58, 0.42])
+    fig.add_trace(go.Scatter(
+        x=closes["fecha"], y=closes[ind.ratio_col], name=ind.codigo, mode=mode,
+        line=dict(color=BBG_BLUE, width=2.2), marker=dict(size=6),
+        customdata=closes["periodo"],
+        hovertemplate=f"%{{customdata}}<br>{ind.codigo}: %{{y:.2f}}%<extra></extra>"), row=1, col=1)
+    lo = min(closes[ind.ratio_col].min(), min(u.valor for u in umbrales)) - 5
+    hi = max(closes[ind.ratio_col].max(), max(u.valor for u in umbrales)) + 5
+    fig.update_yaxes(range=[lo, hi], ticksuffix="%", row=1, col=1)
+    _threshold_lines(fig, umbrales, 1, 1)
+    for col, name, color in ((ind.num_col, ind.num, BBG_MINT), (ind.den_col, ind.den, BBG_RED)):
+        fig.add_trace(go.Scatter(
+            x=closes["fecha"], y=closes[col], name=f"{name} (MM$)", mode=mode, line=dict(color=color, width=1.8),
+            marker=dict(size=5), customdata=closes["periodo"],
+            hovertemplate=f"%{{customdata}}<br>{name}: $%{{y:,.0f}} MM<extra></extra>"), row=2, col=1)
+    fig.update_yaxes(title_text="MM$", row=2, col=1)
+    fig.update_yaxes(title_text=f"{ind.codigo} (%)", row=1, col=1)
+    return _layout(fig, f"Evolución del {ind.codigo}, {ind.num} y {ind.den} · cierres {granularidad.lower()}s", 560)
+
+
+def variation_chart(closes: pd.DataFrame, ind, modo: str) -> go.Figure:
+    """Variaciones período a período: absolutas (pp y MM$) o porcentuales (%)."""
+    d = closes.dropna(subset=["d_ratio"])
+    pct = modo == "Porcentual"
+    r_col = "d_ratio_pct" if pct else "d_ratio"
+    unit_r, unit_c = ("%", "%") if pct else ("pp", "MM$")
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.14,
+                        subplot_titles=[f"Variación del {ind.codigo} ({unit_r})",
+                                        f"Variación de {ind.num} y {ind.den} ({unit_c})"])
+    fig.add_trace(go.Bar(x=d["fecha"], y=d[r_col], name=f"Δ {ind.codigo}",
+                         marker_color=[BBG_MINT if v >= 0 else BBG_RED for v in d[r_col]], marker_line_width=0,
+                         customdata=d["periodo"],
+                         hovertemplate=f"%{{customdata}}<br>Δ {ind.codigo}: %{{y:+.2f}} {unit_r}<extra></extra>"),
+                  row=1, col=1)
+    for col, name, color in ((f"d_num{'_pct' if pct else ''}", ind.num, BBG_MINT),
+                             (f"d_den{'_pct' if pct else ''}", ind.den, BBG_RED)):
+        fig.add_trace(go.Bar(x=d["fecha"], y=d[col], name=f"Δ {name}", marker_color=color, marker_line_width=0,
+                             customdata=d["periodo"],
+                             hovertemplate=f"%{{customdata}}<br>Δ {name}: %{{y:+,.2f}} {unit_c}<extra></extra>"),
+                      row=2, col=1)
+    fig.update_layout(barmode="group", bargap=0.05 if len(d) > 90 else 0.25)
+    for a in fig.layout.annotations:
+        a.font = dict(size=12, color=BBG_MUTED, family=MONO)
+    return _layout(fig, f"Variaciones {'porcentuales' if pct else 'absolutas'} entre cierres", 480)
+
+
+def comparison_chart(cmp: pd.DataFrame, ind, label_a: str, label_b: str) -> go.Figure:
+    """Comparación de numerador y denominador entre dos cierres (barras) con el ratio anotado."""
+    rows = cmp[cmp["Unidad"] == "MM$"]
     fig = go.Figure()
-
-    # Traza principal con gradiente sombreado
-    fig.add_trace(go.Scatter(
-        x=df[fecha_col],
-        y=df[ratio_col],
-        mode='lines+markers' if len(df) <= 45 else 'lines',
-        name=f"{ratio_nombre} (%)",
-        line=dict(color=COLOR_BLUE, width=2.5),
-        marker=dict(size=5, color=COLOR_BLUE, line=dict(color="#FFFFFF", width=0.8)),
-        fill='tozeroy',
-        fillcolor='rgba(1, 104, 255, 0.12)',
-        hovertemplate='<b>Fecha:</b> %{x|%d-%b-%Y}<br>' +
-                      f'<b>{ratio_nombre}:</b> %{{y:.2f}}%<extra></extra>'
-    ))
-
-    # Umbral 1: Mínimo Normativo CMF (100%) - Rojo Bloomberg
-    fig.add_hline(
-        y=limite_normativo,
-        line=dict(color=COLOR_RED, width=1.8, dash="dash"),
-        annotation_text=f"Mínimo {limite_normativo:.0f}%",
-        annotation_position="bottom right",
-        annotation_font=dict(color=COLOR_RED, size=10, family="IBM Plex Mono")
-    )
-
-    # Umbral 2: Nivel de Alerta Interno - Amarillo Bloomberg
-    fig.add_hline(
-        y=limite_interno,
-        line=dict(color=COLOR_GOLD, width=1.5, dash="dot"),
-        annotation_text=f"Alerta {limite_interno:.0f}%",
-        annotation_position="top left",
-        annotation_font=dict(color=COLOR_GOLD, size=10, family="IBM Plex Mono")
-    )
-
-    # Umbral 3: Apetito de Riesgo - Naranja Bloomberg
-    if apetito_riesgo and apetito_riesgo > limite_interno:
-        fig.add_hline(
-            y=apetito_riesgo,
-            line=dict(color=COLOR_ORANGE, width=1.5, dash="dashdot"),
-            annotation_text=f"Apetito {apetito_riesgo:.0f}%",
-            annotation_position="top right",
-            annotation_font=dict(color=COLOR_ORANGE, size=10, family="IBM Plex Mono")
-        )
-
-    fig = _apply_bloomberg_layout(fig, f"Evolución y Umbrales: {ratio_nombre}")
-    fig.update_layout(
-        yaxis=dict(title=f"{ratio_nombre} (%)", ticksuffix="%"),
-        hovermode="x unified"
-    )
-    return fig
-
-
-def plot_composition_evolution(
-    df: pd.DataFrame,
-    fecha_col: str,
-    num_col: str,
-    den_col: str,
-    num_nombre: str,
-    den_nombre: str,
-    ratio_col: str,
-    ratio_nombre: str,
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de doble eje estilo Bloomberg:
-    - Numerador (Menta #4af6c4) vs Denominador (Rojo #fe443d) en MM$ (Eje Izquierdo)
-    - Línea del Ratio (Azul #0168ff) en % (Eje Derecho)
-    """
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    dense = len(df) > 90
-
-    for col, nombre, color in ((num_col, num_nombre, COLOR_MINT), (den_col, den_nombre, COLOR_RED)):
-        hover = '<b>' + nombre + ':</b> $%{y:,.0f} MM<extra></extra>'
-        if dense:
-            trace = go.Scatter(x=df[fecha_col], y=df[col], name=nombre, mode='lines',
-                               line=dict(color=color, width=2.0), hovertemplate=hover)
-        else:
-            trace = go.Bar(x=df[fecha_col], y=df[col], name=nombre, marker_color=color, opacity=0.85,
-                           marker_line_width=0, hovertemplate=hover)
-        fig.add_trace(trace, secondary_y=False)
-
-    fig.add_trace(
-        go.Scatter(
-            x=df[fecha_col],
-            y=df[ratio_col],
-            name=f"{ratio_nombre} (%)",
-            line=dict(color=COLOR_BLUE, width=2.5),
-            mode='lines',
-            hovertemplate='<b>' + ratio_nombre + ':</b> %{y:.2f}%<extra></extra>'
-        ),
-        secondary_y=True
-    )
-
-    fig = _apply_bloomberg_layout(fig, f"Composición de Balance: {num_nombre} vs {den_nombre}")
-    fig.update_layout(barmode='group', hovermode="x unified")
-    fig.update_yaxes(title_text="Monto (MM$)", showgrid=True, gridcolor=BBG_GRID, secondary_y=False)
-    fig.update_yaxes(title_text=f"{ratio_nombre} (%)", ticksuffix="%", showgrid=False, secondary_y=True)
-
-    return fig
-
-
-def plot_period_variations(
-    df: pd.DataFrame,
-    fecha_col: str,
-    ratio_col: str,
-    num_col: str,
-    den_col: str,
-    num_nombre: str,
-    den_nombre: str,
-    ratio_nombre: str,
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de variaciones periódicas:
-    - Variación del ratio en pp (Menta positiva, Roja negativa)
-    - Variación de componentes en MM$
-    """
-    df_var = df.dropna(subset=['delta_ratio']).copy()
-    if len(df_var) == 0:
-        return go.Figure()
-
-    colores_delta = [COLOR_MINT if val >= 0 else COLOR_RED for val in df_var['delta_ratio']]
-
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.12,
-        subplot_titles=[
-            f"Δ {ratio_nombre} por período (pp)",
-            f"Variación Neta: {num_nombre} y {den_nombre} (MM$)"
-        ]
-    )
-
-    fig.add_trace(
-        go.Bar(
-            x=df_var[fecha_col],
-            y=df_var['delta_ratio'],
-            name=f"Δ {ratio_nombre} (pp)",
-            marker_color=colores_delta,
-            hovertemplate='<b>Fecha:</b> %{x|%d-%b-%Y}<br><b>Δ Ratio:</b> %{y:+.2f} pp<extra></extra>'
-        ),
-        row=1, col=1
-    )
-
-    fig.add_trace(
-        go.Bar(
-            x=df_var[fecha_col],
-            y=df_var['delta_num'],
-            name=f"Δ {num_nombre}",
-            marker_color=COLOR_MINT,
-            hovertemplate='<b>Δ ' + num_nombre + ':</b> %{y:+,.0f} MM$<extra></extra>'
-        ),
-        row=2, col=1
-    )
-
-    fig.add_trace(
-        go.Bar(
-            x=df_var[fecha_col],
-            y=df_var['delta_den'],
-            name=f"Δ {den_nombre}",
-            marker_color=COLOR_RED,
-            hovertemplate='<b>Δ ' + den_nombre + ':</b> %{y:+,.0f} MM$<extra></extra>'
-        ),
-        row=2, col=1
-    )
-
-    fig = _apply_bloomberg_layout(fig, f"Dinámica de Variaciones Periódicas: {ratio_nombre}")
-    fig.update_traces(marker_line_width=0)
-    fig.update_layout(barmode='group')
-    return fig
-
-
-def plot_waterfall_bridge(
-    ratio_ant: float,
-    ratio_act: float,
-    num_ant: float,
-    num_act: float,
-    den_ant: float,
-    den_act: float,
-    num_nombre: str,
-    den_nombre: str,
-    ratio_nombre: str,
-    fecha_ant_label: str = "Inicio",
-    fecha_act_label: str = "Cierre",
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de cascada (Waterfall / Bridge) que explica la variación en pp
-    descompuesta en: Efecto Numerador, Efecto Denominador e Interacción.
-    """
-    if den_ant <= 0 or den_act <= 0:
-        return go.Figure()
-
-    delta_num = num_act - num_ant
-    delta_den = den_act - den_ant
-
-    efecto_num = (delta_num / den_ant) * 100.0
-    efecto_den = - (num_ant * delta_den / (den_ant * den_act)) * 100.0
-    efecto_interaccion = (ratio_act - ratio_ant) - (efecto_num + efecto_den)
-
-    x_labels = [
-        f"{ratio_nombre} {fecha_ant_label}",
-        f"Efecto {num_nombre}",
-        f"Efecto {den_nombre}",
-        "Ajuste / Interacción",
-        f"{ratio_nombre} {fecha_act_label}"
-    ]
-
-    measures = ["absolute", "relative", "relative", "relative", "total"]
-    y_values = [ratio_ant, efecto_num, efecto_den, efecto_interaccion, ratio_act]
-    text_values = [
-        f"{ratio_ant:.2f}%",
-        f"{efecto_num:+.2f} pp",
-        f"{efecto_den:+.2f} pp",
-        f"{efecto_interaccion:+.2f} pp",
-        f"{ratio_act:.2f}%"
-    ]
-
-    fig = go.Figure(go.Waterfall(
-        name="Atribución",
-        orientation="v",
-        measure=measures,
-        x=x_labels,
-        textposition="outside",
-        text=text_values,
-        y=y_values,
-        connector=dict(line=dict(color=BBG_MUTED, width=1, dash="dot")),
-        decreasing=dict(marker=dict(color=COLOR_RED)),
-        increasing=dict(marker=dict(color=COLOR_MINT)),
-        totals=dict(marker=dict(color=COLOR_BLUE)),
-        hovertemplate='<b>%{x}</b><br>Impacto: %{text}<extra></extra>'
-    ))
-
-    fig = _apply_bloomberg_layout(fig, f"Puente de Variaciones: {ratio_nombre}")
-    fig.update_layout(yaxis=dict(title=f"{ratio_nombre} (%)", ticksuffix="%"))
-    return fig
-
-
-def plot_period_comparison(
-    nombre_a: str, fecha_a: str, ratio_a: float, num_a: float, den_a: float,
-    nombre_b: str, fecha_b: str, ratio_b: float, num_b: float, den_b: float,
-    ratio_nombre: str, num_nombre: str, den_nombre: str,
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico comparativo directo entre dos períodos seleccionados (Req 1.2, 2.2).
-    """
-    categories = [f"{ratio_nombre} (%)", f"{num_nombre} (MM$)", f"{den_nombre} (MM$)"]
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    # Montos en MM$
-    fig.add_trace(go.Bar(
-        name=f"{nombre_a} ({fecha_a})",
-        x=[num_nombre, den_nombre],
-        y=[num_a, den_a],
-        marker_color="#2A5C99",
-        text=[f"${num_a:,.0f} M", f"${den_a:,.0f} M"],
-        textposition="auto"
-    ), secondary_y=False)
-
-    fig.add_trace(go.Bar(
-        name=f"{nombre_b} ({fecha_b})",
-        x=[num_nombre, den_nombre],
-        y=[num_b, den_b],
-        marker_color=COLOR_BLUE,
-        text=[f"${num_b:,.0f} M", f"${den_b:,.0f} M"],
-        textposition="auto"
-    ), secondary_y=False)
-
-    # Ratios en %
-    fig.add_trace(go.Scatter(
-        name=f"{ratio_nombre} {nombre_a}",
-        x=[num_nombre],
-        y=[ratio_a],
-        mode="markers+text",
-        marker=dict(size=14, color=COLOR_GOLD, symbol="diamond"),
-        text=[f"{ratio_a:.2f}%"],
-        textposition="top center"
-    ), secondary_y=True)
-
-    fig.add_trace(go.Scatter(
-        name=f"{ratio_nombre} {nombre_b}",
-        x=[den_nombre],
-        y=[ratio_b],
-        mode="markers+text",
-        marker=dict(size=14, color=COLOR_MINT, symbol="diamond"),
-        text=[f"{ratio_b:.2f}%"],
-        textposition="top center"
-    ), secondary_y=True)
-
-    fig = _apply_bloomberg_layout(fig, f"Comparación Período A vs Período B: {ratio_nombre}")
+    fig.add_trace(go.Bar(x=rows["Indicador"], y=rows["Período A"], name=label_a, marker_color=rgba(BBG_BLUE, 0.45),
+                         marker_line_width=0, text=[f"${v:,.0f}" for v in rows["Período A"]], textposition="outside"))
+    fig.add_trace(go.Bar(x=rows["Indicador"], y=rows["Período B"], name=label_b, marker_color=BBG_BLUE,
+                         marker_line_width=0, text=[f"${v:,.0f}" for v in rows["Período B"]], textposition="outside"))
+    r = cmp[cmp["Unidad"] == "%"].iloc[0]
     fig.update_layout(barmode="group")
-    fig.update_yaxes(title_text="Montos (MM$)", secondary_y=False)
-    fig.update_yaxes(title_text=f"{ratio_nombre} (%)", ticksuffix="%", secondary_y=True)
-    return fig
+    return _layout(fig, f"{ind.codigo}: {r['Período A']:.2f}% → {r['Período B']:.2f}% ({r['Variación absoluta']:+.2f} pp)", 360)
 
 
-def plot_projection_chart(
-    df_hist: pd.DataFrame,
-    fecha_col: str,
-    ratio_col: str,
-    ratio_nombre: str,
-    pred_series: pd.Series,
-    lower_series: pd.Series,
-    upper_series: pd.Series,
-    horizon_days: int = 30,
-    limite_normativo: float = 100.0,
-    limite_interno: float = 120.0,
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de proyección temporal con bandas de incertidumbre al 95% (Req 1.5, 2.5).
-    """
-    fig = go.Figure()
-    df_recent = df_hist.tail(90).copy()
-    last_date = pd.to_datetime(df_recent[fecha_col].iloc[-1])
-    future_dates = [last_date + pd.Timedelta(days=i+1) for i in range(horizon_days)]
+# -----------------------------------------------------------------------------
+# Descomposición, tensión y puente
+# -----------------------------------------------------------------------------
 
-    # 1. Historia reciente
-    fig.add_trace(go.Scatter(
-        x=df_recent[fecha_col],
-        y=df_recent[ratio_col],
-        name="Histórico Observado",
-        mode="lines",
-        line=dict(color=BBG_MUTED, width=1.8),
-        hovertemplate='<b>%{x|%d-%b-%Y}:</b> %{y:.2f}%<extra></extra>'
-    ))
-
-    # 2. Banda de incertidumbre (Cono de confianza al 95%)
-    fig.add_trace(go.Scatter(
-        x=future_dates + future_dates[::-1],
-        y=list(upper_series) + list(lower_series)[::-1],
-        fill="toself",
-        fillcolor="rgba(1, 104, 255, 0.15)",
-        line=dict(color="rgba(255,255,255,0)"),
-        name="Intervalo Confianza (95%)",
-        hoverinfo="skip"
-    ))
-
-    # 3. Proyección central
-    fig.add_trace(go.Scatter(
-        x=[df_recent[fecha_col].iloc[-1]] + future_dates,
-        y=[df_recent[ratio_col].iloc[-1]] + list(pred_series),
-        name="Proyección Estimada",
-        mode="lines+markers",
-        line=dict(color=COLOR_BLUE, width=2.5, dash="dash"),
-        marker=dict(size=4, color=COLOR_BLUE),
-        hovertemplate='<b>Proyectado %{x|%d-%b-%Y}:</b> %{y:.2f}%<extra></extra>'
-    ))
-
-    # Umbrales
-    fig.add_hline(y=limite_normativo, line=dict(color=COLOR_RED, width=1.5, dash="dash"),
-                  annotation_text=f"Mínimo {limite_normativo:.0f}%", annotation_position="bottom right")
-    fig.add_hline(y=limite_interno, line=dict(color=COLOR_GOLD, width=1.5, dash="dot"),
-                  annotation_text=f"Alerta {limite_interno:.0f}%", annotation_position="top left")
-
-    fig = _apply_bloomberg_layout(fig, f"Proyección y Cono de Incertidumbre a {horizon_days} Días: {ratio_nombre}")
-    fig.update_layout(yaxis=dict(title=f"{ratio_nombre} (%)", ticksuffix="%"))
-    return fig
-
-
-def plot_category_breakdown(
-    df_cat: pd.DataFrame,
-    componente_nombre: str,
-    titulo: str = "Descomposición por Categoría",
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de barras horizontales para distribución de categorías.
-    """
-    df_sorted = df_cat.sort_values(by='monto_ponderado', ascending=True)
-
+def impact_chart(df: pd.DataFrame, value_col: str, label_col: str, title: str, top: int = 10,
+                 unit: str = "pp") -> go.Figure:
+    d = df[df[value_col].abs() > 1e-9].copy()
+    d = d.reindex(d[value_col].abs().sort_values(ascending=False).index).head(top).iloc[::-1]
+    labels = [t if len(t) <= 44 else t[:42] + "…" for t in d[label_col].astype(str)]
     fig = go.Figure(go.Bar(
-        x=df_sorted['monto_ponderado'],
-        y=df_sorted['categoria'],
-        orientation='h',
-        marker=dict(
-            color=COLOR_MINT if componente_nombre in ['ALAC', 'FED'] else COLOR_RED,
-            opacity=0.88
-        ),
-        text=[f"${v:,.0f} MM ({p:.1f}%)" for v, p in zip(df_sorted['monto_ponderado'], df_sorted['participacion_pct'])],
-        textposition='auto',
-        hovertemplate='<b>%{y}</b><br>Computable: $%{x:,.0f} MM<extra></extra>'
-    ))
+        x=d[value_col], y=labels, orientation="h", marker_line_width=0, customdata=d[label_col],
+        marker_color=[BBG_MINT if v >= 0 else BBG_RED for v in d[value_col]],
+        text=[f"{v:+.2f} {unit}" for v in d[value_col]], textposition="outside",
+        textfont=dict(family=MONO, size=11), cliponaxis=False,
+        hovertemplate=f"%{{customdata}}<br>%{{x:+.3f}} {unit}<extra></extra>"))
+    fig.update_xaxes(ticksuffix=f" {unit}")
+    fig.update_yaxes(automargin=True)
+    return _layout(fig, title, max(300, 34 * len(d) + 120))
 
-    fig = _apply_bloomberg_layout(fig, titulo)
-    fig.update_layout(xaxis=dict(title="Monto Computable (MM$)"), margin=dict(l=220, r=40, t=65, b=45))
+
+def scenario_bars(results: Dict[str, float], ind, umbrales, title: str) -> go.Figure:
+    """Barras horizontales por escenario; los umbrales son líneas verticales rotuladas arriba."""
+    names = list(results)[::-1]
+    vals = [results[n] for n in names]
+    colors = [BBG_BLUE if n == "Base" else (BBG_RED if n == "Severo" else BBG_ORANGE) for n in names]
+    fig = go.Figure(go.Bar(
+        y=names, x=vals, orientation="h", marker_color=colors, marker_line_width=0,
+        text=[f"{v:.2f}%" for v in vals], textposition="outside", textfont=dict(family=MONO, size=12),
+        hovertemplate="%{y}: %{x:.2f}%<extra></extra>"))
+    top = max(vals + [u.valor for u in umbrales]) * 1.2
+    for i, u in enumerate(sorted(umbrales, key=lambda u: u.valor)):
+        fig.add_vline(x=u.valor, line=dict(color=u.color, width=1.4, dash=DASH[u.tipo]))
+        fig.add_annotation(x=u.valor, y=1.0 + 0.09 * i, yref="paper", text=f"{u.valor:.0f}%", showarrow=False,
+                           font=dict(color=u.color, size=10.5, family=MONO), yanchor="bottom")
+    fig.update_xaxes(ticksuffix="%", range=[0, top])
+    fig = _layout(fig, title, 360)
+    fig.update_layout(margin=dict(l=70, r=30, t=100, b=40), showlegend=False)
     return fig
 
 
-def plot_concentration_chart(
-    df_cat: pd.DataFrame,
-    componente_nombre: str,
-    hhi_score: float,
-    hhi_diagnostico: str,
-    *args,
-    **kwargs
-) -> go.Figure:
-    """
-    Gráfico de concentración y vulnerabilidad (Curva de Pareto y HHI) (Req 3.4).
-    """
-    df_sorted = df_cat.sort_values(by='monto_ponderado', ascending=False).copy()
-    df_sorted['cum_share'] = df_sorted['share_pct'].cumsum()
+def waterfall_chart(wf: pd.DataFrame, ind, label_a: str, label_b: str) -> go.Figure:
+    ra, rb = wf.attrs["ratio_a"], wf.attrs["ratio_b"]
+    x = [f"{ind.codigo} {label_a}"] + list(wf["categoria"]) + [f"{ind.codigo} {label_b}"]
+    y = [ra] + list(wf["contribucion_pp"]) + [rb]
+    measure = ["absolute"] + ["relative"] * len(wf) + ["total"]
+    fig = go.Figure(go.Waterfall(
+        x=x, y=y, measure=measure, connector=dict(line=dict(color=BBG_BORDER, width=1)),
+        increasing=dict(marker=dict(color=BBG_MINT)), decreasing=dict(marker=dict(color=BBG_RED)),
+        totals=dict(marker=dict(color=BBG_BLUE)),
+        text=[f"{ra:.2f}%"] + [f"{v:+.2f}" for v in wf["contribucion_pp"]] + [f"{rb:.2f}%"],
+        textposition="outside", textfont=dict(family=MONO, size=11)))
+    span = max(abs(rb - ra), wf["contribucion_pp"].abs().sum(), 1.0)
+    low = min(ra, rb) - span * 1.2
+    fig.update_yaxes(range=[low, max(ra, rb) + span * 1.2], ticksuffix="%")
+    fig.update_xaxes(tickangle=-30)
+    return _layout(fig, f"Puente del {ind.codigo}: {label_a} → {label_b} (contribución en pp)", 500)
 
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    fig.add_trace(go.Bar(
-        x=df_sorted['categoria'],
-        y=df_sorted['share_pct'],
-        name="Participación (%)",
-        marker_color=COLOR_BLUE,
-        hovertemplate='<b>%{x}</b><br>Part.: %{y:.1f}%<extra></extra>'
-    ), secondary_y=False)
+# -----------------------------------------------------------------------------
+# Proyecciones
+# -----------------------------------------------------------------------------
 
+def projection_chart(hist: pd.DataFrame, ind, projections: Dict[str, pd.DataFrame], umbrales,
+                     history_days: int = 180, title: Optional[str] = None) -> go.Figure:
+    h = hist.sort_values("fecha").tail(history_days)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=h["fecha"], y=h[ind.ratio_col], name=f"{ind.codigo} real", mode="lines",
+                             line=dict(color=BBG_BLUE, width=2.2),
+                             hovertemplate=f"%{{x|%d-%m-%Y}}<br>Real: %{{y:.2f}}%<extra></extra>"))
+    for esc, df in projections.items():
+        color = SCENARIO_COLOR.get(esc, BBG_ORANGE)
+        fig.add_trace(go.Scatter(x=list(df["fecha"]) + list(df["fecha"][::-1]),
+                                 y=list(df["upper"]) + list(df["lower"][::-1]), fill="toself",
+                                 fillcolor=rgba(color, 0.10), line=dict(width=0), hoverinfo="skip",
+                                 name=f"Banda 95% {esc}", showlegend=False))
+        fig.add_trace(go.Scatter(x=df["fecha"], y=df["pred"], name=f"Proyección {esc}", mode="lines",
+                                 line=dict(color=color, width=2, dash="dash"),
+                                 hovertemplate=f"%{{x|%d-%m-%Y}}<br>{esc} (estimado): %{{y:.2f}}%<extra></extra>"))
+    _threshold_lines(fig, umbrales, x_label_pos="left")
+    allv = [h[ind.ratio_col].min(), h[ind.ratio_col].max()] + [df["lower"].min() for df in projections.values()] + \
+           [df["upper"].max() for df in projections.values()] + [u.valor for u in umbrales]
+    fig.update_yaxes(range=[min(allv) - 5, max(allv) + 5], ticksuffix="%")
+    fig.add_vline(x=h["fecha"].max(), line=dict(color=BBG_MUTED, width=1, dash="dot"))
+    return _layout(fig, title or f"Proyección del {ind.codigo} (estimación, no resultado cierto)", 460)
+
+
+def backtest_chart(det: pd.DataFrame, metodo_label: str, ind_code: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=det["fecha_objetivo"], y=det["observado"], name="Observado (real)",
+                             mode="lines+markers", line=dict(color=BBG_BLUE, width=2), marker=dict(size=7)))
     fig.add_trace(go.Scatter(
-        x=df_sorted['categoria'],
-        y=df_sorted['cum_share'],
-        name="Acumulado (%)",
-        mode="lines+markers",
-        line=dict(color=COLOR_ORANGE, width=2.2),
-        hovertemplate='<b>%{x}</b><br>Acumulado: %{y:.1f}%<extra></extra>'
-    ), secondary_y=True)
+        x=det["fecha_objetivo"], y=det["proyectado"], name="Proyectado", mode="markers",
+        marker=dict(color=BBG_ORANGE, size=9, symbol="diamond"),
+        error_y=dict(type="data", symmetric=False, array=det["upper"] - det["proyectado"],
+                     arrayminus=det["proyectado"] - det["lower"], color=rgba(BBG_ORANGE, 0.5), thickness=1.2)))
+    fig.update_yaxes(ticksuffix="%")
+    return _layout(fig, f"{ind_code}: proyectado vs observado · {metodo_label}", 400)
 
-    # Línea del 80% (Pareto)
-    fig.add_hline(y=80.0, line=dict(color=BBG_MUTED, dash="dot", width=1),
-                  annotation_text="80% Pareto", annotation_position="top left", secondary_y=True)
 
-    fig = _apply_bloomberg_layout(fig, f"Concentración Pareto e Índice HHI: {componente_nombre} (HHI: {hhi_score:.0f} - {hhi_diagnostico})")
-    fig.update_yaxes(title_text="Participación Individual (%)", ticksuffix="%", secondary_y=False)
-    fig.update_yaxes(title_text="Participación Acumulada (%)", ticksuffix="%", range=[0, 105], secondary_y=True)
-    fig.update_xaxes(tickangle=-25)
+# -----------------------------------------------------------------------------
+# Resumen ejecutivo y concentración
+# -----------------------------------------------------------------------------
+
+def gauge(ratio: float, ind_code: str, umbrales, estado: Dict) -> go.Figure:
+    vals = sorted(u.valor for u in umbrales)
+    top = max(ratio, vals[-1]) * 1.25
+    low = min(60.0, ratio - 10.0)          # la escala parte en 60%: lo relevante está alrededor de los umbrales
+    bands = [low] + vals + [top]
+    colors = [BBG_RED, BBG_ORANGE, BBG_BLUE, BBG_MINT][-(len(bands) - 1):] if len(vals) == 3 else [BBG_RED, BBG_ORANGE, BBG_MINT]
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=ratio,
+        number=dict(suffix="%", font=dict(family=MONO, size=34, color=estado["color"]), valueformat=".2f"),
+        title=dict(text=f"{ind_code}<br><span style='font-size:12px;color:{estado['color']}'>{estado['codigo']}</span>",
+                   font=dict(family=MONO, size=15, color=BBG_TEXT)),
+        gauge=dict(axis=dict(range=[low, top], tickcolor=BBG_MUTED, tickfont=dict(family=MONO, size=10)),
+                   bar=dict(color=BBG_TEXT, thickness=0.22), bgcolor=BBG_BLACK, borderwidth=1, bordercolor=BBG_BORDER,
+                   steps=[dict(range=[bands[i], bands[i + 1]], color=rgba(colors[i], 0.35)) for i in range(len(bands) - 1)],
+                   threshold=dict(line=dict(color=BBG_RED, width=3), thickness=0.9, value=vals[0]))))
+    fig.update_layout(height=260, margin=dict(l=25, r=25, t=60, b=10), paper_bgcolor=BBG_BLACK,
+                      font=dict(color=BBG_TEXT, family=FONT))
     return fig
+
+
+def pareto_chart(tabla: pd.DataFrame, dimension: str, componente: str, hhi: float, nivel: str) -> go.Figure:
+    t = tabla.head(15)
+    color = BBG_MINT if componente in ("ALAC", "FED") else BBG_RED
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(x=t[dimension], y=t["base"], name="Monto computable (MM$)", marker_color=color,
+                         marker_line_width=0, hovertemplate="%{x}<br>$%{y:,.0f} MM<extra></extra>"), secondary_y=False)
+    fig.add_trace(go.Scatter(x=t[dimension], y=t["acumulado"], name="Participación acumulada (%)", mode="lines+markers",
+                             line=dict(color=BBG_ORANGE, width=2), marker=dict(size=6)), secondary_y=True)
+    fig.update_yaxes(title_text="MM$", secondary_y=False)
+    fig.update_yaxes(ticksuffix="%", range=[0, 105], showgrid=False, secondary_y=True)
+    fig.update_xaxes(tickangle=-30)
+    return _layout(fig, f"Concentración de {componente} · HHI {hhi:,.0f} ({nivel})", 460)

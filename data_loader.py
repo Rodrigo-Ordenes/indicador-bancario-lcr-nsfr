@@ -46,7 +46,7 @@ import regulatory_engine as reg
 log = logging.getLogger(__name__)
 
 HISTORY_DAYS = 365
-DETAIL_DAYS = 120
+DETAIL_DAYS = 800   # detalle diario completo: comparaciones anuales y volatilidad por componente
 MM = Decimal(1_000_000)
 DETAIL_COLUMNS = ["fecha", "componente", "categoria", "subcategoria", "monto_nominal",
                   "factor_ponderacion", "monto_ponderado", "fuente"]

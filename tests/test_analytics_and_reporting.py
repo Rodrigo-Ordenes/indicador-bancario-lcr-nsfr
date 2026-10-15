@@ -1,172 +1,163 @@
 """
-tests/test_analytics_and_reporting.py
-======================================
-Pruebas unitarias para:
-- Análisis de descomposición diaria (Cierre de Hoy vs Cierre de Ayer) y vistas periódicas (Semanal, Mensual, Anual).
-- Identificación de Top Drivers (factores explicativos).
-- Generación de KPIs ejecutivos con etiquetas EOD institucionales.
-- Atribución matemática Waterfall de variaciones.
-- Generación de informe PDF consolidado para el Comité ALCO.
+Pruebas del motor analítico del panel y del informe PDF.
+Usan un conjunto sintético pequeño y controlado (sin base de datos) para verificar
+las reglas de negocio: cierres por período, topes en pruebas de tensión, puente
+con residual, holguras, alertas, calidad de datos y generación del PDF.
+Ejecutar:  .venv/bin/python -m unittest discover -s tests -v
 """
 
+import os
+import sys
 import unittest
-import pandas as pd
+
 import numpy as np
-from datetime import datetime, timedelta
+import pandas as pd
 
-from analytics import (
-    get_kpis_indicador,
-    analyze_decomposition,
-    compute_waterfall_attribution,
-    calculate_multithreshold_buffers,
-    calculate_alert_statistics
-)
-import pdf_generator
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import analytics as an  # noqa: E402
 
 
-class AnalyticsAndReportingTests(unittest.TestCase):
+def _lcr_dataset(days: int = 400, l2b: float = 20.0, inflows: float = 300.0):
+    """Historia diaria LCR con 4 líneas (L1, L2B, salida, entrada), coherente detalle = total."""
+    fechas = pd.date_range("2025-01-01", periods=days, freq="D")
+    hist, det = [], []
+    for i, f in enumerate(fechas):
+        l1 = 1000.0 + i
+        out = 800.0 + 0.5 * i
+        lines = [("ALAC", "Nivel 1: Efectivo y BCCh", "Reserva BCCh", l1, 1.0, l1),
+                 ("ALAC", "Nivel 2B: Activos Menor Liquidez", "Acciones", l2b * 2, 0.5, l2b),
+                 ("NAF", "Depósitos Mayoristas No Operacionales", "DP institucional", out, 1.0, out),
+                 ("NAF", "Entradas de Efectivo (Inflows con Cap 75%)", "Cobros cartera", -inflows, 1.0, -inflows)]
+        import regulatory_engine as reg
+        r = reg.compute_lcr(l1, 0, l2b, out, inflows)
+        for comp, cat, sub, nom, fac, w in lines:
+            det.append({"fecha": f, "componente": comp, "categoria": cat, "subcategoria": sub,
+                        "monto_nominal": nom, "factor_ponderacion": fac, "monto_ponderado": w, "fuente": "TEST"})
+        if r.adjustment_15pct_cap > 0:
+            det.append({"fecha": f, "componente": "ALAC", "categoria": "Ajuste Tope 15% Nivel 2B", "subcategoria": "Exceso",
+                        "monto_nominal": -float(r.adjustment_15pct_cap), "factor_ponderacion": 1.0,
+                        "monto_ponderado": -float(r.adjustment_15pct_cap), "fuente": "TEST"})
+        if r.inflow_cap_adjustment > 0:
+            det.append({"fecha": f, "componente": "NAF", "categoria": "Entradas de Efectivo (Inflows con Cap 75%)",
+                        "subcategoria": "Ajuste tope 75%", "monto_nominal": float(r.inflow_cap_adjustment),
+                        "factor_ponderacion": 1.0, "monto_ponderado": float(r.inflow_cap_adjustment), "fuente": "TEST"})
+        hist.append({"fecha": f, "lcr": float(r.lcr_pct), "alac": float(r.hqla), "naf": float(r.net_cash_outflows)})
+    return pd.DataFrame(hist), pd.DataFrame(det)
 
-    def setUp(self):
-        # Serie histórica sintética de 60 días
-        fechas = [datetime(2026, 1, 1) + timedelta(days=i) for i in range(60)]
-        self.df_hist = pd.DataFrame({
-            "fecha": fechas,
-            "lcr": [120.0 + (i * 0.1) for i in range(60)],
-            "alac": [1200000.0 + (i * 1000.0) for i in range(60)],
-            "naf": [1000000.0 + (i * 500.0) for i in range(60)]
-        })
 
-        # Detalle de balance con 2 días consecutivos: Ayer (t-1) y Hoy (t)
-        fecha_ayer = fechas[-2]
-        fecha_hoy = fechas[-1]
+class AnalyticsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.hist, cls.det = _lcr_dataset()
+        cls.u = an.umbrales_lcr()
 
-        rows = [
-            # Ayer
-            {"fecha": fecha_ayer, "componente": "ALAC", "categoria": "Nivel 1", "subcategoria": "Billetes y Monedas", "monto_nominal": 100000.0, "factor_ponderacion": 1.0, "monto_ponderado": 100000.0},
-            {"fecha": fecha_ayer, "componente": "ALAC", "categoria": "Nivel 1", "subcategoria": "Depósitos en Banco Central", "monto_nominal": 500000.0, "factor_ponderacion": 1.0, "monto_ponderado": 500000.0},
-            {"fecha": fecha_ayer, "componente": "ALAC", "categoria": "Nivel 2A", "subcategoria": "Bonos Soberanos Extranjeros", "monto_nominal": 200000.0, "factor_ponderacion": 0.85, "monto_ponderado": 170000.0},
-            {"fecha": fecha_ayer, "componente": "NAF", "categoria": "Minorista", "subcategoria": "Depósitos a la Vista Personas", "monto_nominal": 400000.0, "factor_ponderacion": 0.05, "monto_ponderado": 20000.0},
-            # Hoy: Banco Central sube +50k, Soberanos cae -20k
-            {"fecha": fecha_hoy, "componente": "ALAC", "categoria": "Nivel 1", "subcategoria": "Billetes y Monedas", "monto_nominal": 100000.0, "factor_ponderacion": 1.0, "monto_ponderado": 100000.0},
-            {"fecha": fecha_hoy, "componente": "ALAC", "categoria": "Nivel 1", "subcategoria": "Depósitos en Banco Central", "monto_nominal": 550000.0, "factor_ponderacion": 1.0, "monto_ponderado": 550000.0},
-            {"fecha": fecha_hoy, "componente": "ALAC", "categoria": "Nivel 2A", "subcategoria": "Bonos Soberanos Extranjeros", "monto_nominal": 180000.0, "factor_ponderacion": 0.85, "monto_ponderado": 153000.0},
-            {"fecha": fecha_hoy, "componente": "NAF", "categoria": "Minorista", "subcategoria": "Depósitos a la Vista Personas", "monto_nominal": 420000.0, "factor_ponderacion": 0.05, "monto_ponderado": 21000.0},
-        ]
-        self.df_det = pd.DataFrame(rows)
+    def test_period_closes_use_last_daily_close(self):
+        m = an.period_closes(self.hist, an.LCR, "Mensual")
+        jan = m[m["fecha"].dt.month == 1].iloc[0]
+        self.assertEqual(jan["fecha"], pd.Timestamp("2025-01-31"))
+        self.assertTrue(bool(m["en_curso"].iloc[-1]))  # último mes no cerrado
+        d = an.period_closes(self.hist, an.LCR, "Diaria")
+        self.assertAlmostEqual(d["d_num"].iloc[-1], 1.0, places=6)  # ALAC sube 1 por día
 
-    def test_kpis_indicador_daily_eod_labels(self):
-        """Verifica que en vista diaria, los KPIs reporten estrictamente Cierre de Hoy vs Cierre de Ayer."""
-        kpis = get_kpis_indicador(
-            df_hist=self.df_hist,
-            ratio_col="lcr",
-            num_col="alac",
-            den_col="naf",
-            limite_normativo=100.0,
-            limite_interno=120.0,
-            apetito_riesgo=150.0,
-            granularidad="Diaria"
-        )
-        self.assertEqual(kpis["periodo_actual_label"], "Cierre de Hoy")
-        self.assertEqual(kpis["periodo_anterior_label"], "Cierre de Ayer")
-        self.assertEqual(kpis["vs_label"], "vs ayer")
-        self.assertAlmostEqual(kpis["delta_num"], 1000.0, places=1)
-        self.assertAlmostEqual(kpis["delta_den"], 500.0, places=1)
-        self.assertGreater(kpis["ratio_actual"], 100.0)
+    def test_status_distinguishes_regulatory_and_internal(self):
+        self.assertEqual(an.estado(99.0, self.u)["codigo"], "INCUMPLIMIENTO")
+        self.assertEqual(an.estado(110.0, self.u)["codigo"], "ALERTA")
+        self.assertEqual(an.estado(130.0, self.u)["codigo"], "BAJO APETITO")
+        self.assertEqual(an.estado(160.0, self.u)["codigo"], "DENTRO DE APETITO")
+        self.assertEqual(an.estado(104.0, an.umbrales_nsfr())["codigo"], "ALERTA")
 
-    def test_kpis_indicador_weekly_and_monthly_labels(self):
-        """Verifica que en vistas agrupadas, las etiquetas reflejen la consolidación de ciclo."""
-        kpis_sem = get_kpis_indicador(self.df_hist, "lcr", "alac", "naf", 100.0, 120.0, 150.0, granularidad="Semanal")
-        self.assertEqual(kpis_sem["periodo_actual_label"], "Cierre Semana Actual")
-        self.assertEqual(kpis_sem["periodo_anterior_label"], "Cierre Semana Anterior")
-        self.assertEqual(kpis_sem["vs_label"], "vs semana ant.")
+    def test_recalculation_matches_published_ratio(self):
+        last = self.hist["fecha"].max()
+        r = an.ratio_from_lines(an.LCR, an.lines_at(self.det, last))
+        self.assertAlmostEqual(r["ratio"], self.hist["lcr"].iloc[-1], places=3)
 
-        kpis_mes = get_kpis_indicador(self.df_hist, "lcr", "alac", "naf", 100.0, 120.0, 150.0, granularidad="Mensual")
-        self.assertEqual(kpis_mes["periodo_actual_label"], "Cierre Mes Actual")
-        self.assertEqual(kpis_mes["periodo_anterior_label"], "Cierre Mes Anterior")
-        self.assertEqual(kpis_mes["vs_label"], "vs mes ant.")
+    def test_stress_reapplies_caps(self):
+        hist, det = _lcr_dataset(days=5, l2b=400.0, inflows=900.0)  # L2B y entradas sobre sus topes
+        lines = an.lines_at(det, hist["fecha"].max())
+        base = an.ratio_from_lines(an.LCR, lines)
+        self.assertGreater(base["detalle"].adjustment_15pct_cap, 0)
+        self.assertGreater(base["detalle"].inflow_cap_adjustment, 0)
+        shocks = pd.Series(0.0, index=lines.index)
+        shocks[lines["tipo"] == "L2B"] = -50.0  # con tope activo, perder L2B casi no mueve el ratio
+        res = an.run_stress(an.LCR, lines, shocks)
+        self.assertLess(abs(res["delta_pp"]), 15.0)
+        self.assertAlmostEqual(res["delta_pp"], res["lineas"]["impacto_individual_pp"].sum() + res["interaccion_pp"], 9)
 
-    def test_analyze_decomposition_daily_hoy_vs_ayer(self):
-        """Verifica la descomposición diaria y cálculo de deltas Hoy vs Ayer en cuentas y partidas."""
-        df_cat, df_det_res, metadata = analyze_decomposition(
-            df_detalle=self.df_det,
-            componente_filtro="ALAC",
-            granularidad="Diaria"
-        )
+    def test_scenarios_are_ordered(self):
+        lines = an.lines_at(self.det, self.hist["fecha"].max())
+        r = {e: an.run_stress(an.LCR, lines, an.scenario_shocks(an.LCR, lines, e))["estresado"]["ratio"]
+             for e in ("Base", "Adverso", "Severo")}
+        self.assertGreater(r["Base"], r["Adverso"])
+        self.assertGreater(r["Adverso"], r["Severo"])
 
-        self.assertEqual(metadata["granularidad"], "Diaria")
-        self.assertEqual(metadata["periodo_act_lbl"], "Cierre de Hoy")
-        self.assertEqual(metadata["periodo_ant_lbl"], "Cierre de Ayer")
-        self.assertEqual(metadata["comp_label"], "vs ayer")
+    def test_waterfall_reconciles_with_residual(self):
+        a, b = self.hist["fecha"].iloc[-31], self.hist["fecha"].iloc[-1]
+        wf = an.waterfall_by_category(self.det, an.LCR, a, b)
+        self.assertAlmostEqual(wf["contribucion_pp"].sum(), wf.attrs["ratio_b"] - wf.attrs["ratio_a"], places=9)
 
-        # Verificar depósitos en Banco Central: +50k
-        bc_row = df_det_res[df_det_res['subcategoria'] == "Depósitos en Banco Central"].iloc[0]
-        self.assertEqual(bc_row['monto_ponderado'], 550000.0)
-        self.assertEqual(bc_row['monto_ponderado_ant'], 500000.0)
-        self.assertEqual(bc_row['delta_ponderado'], 50000.0)
-        self.assertAlmostEqual(bc_row['delta_pct'], 10.0, places=2)
+    def test_buffers_and_required_amounts(self):
+        buf = an.buffers(an.LCR, 110.0, 1100.0, 1000.0, self.u)
+        apetito = buf[buf["Tipo"] == "Interno: apetito"].iloc[0]
+        self.assertAlmostEqual(apetito["ALAC adicional requerido (MM$)"], 400.0, places=6)
+        self.assertAlmostEqual(apetito["Reducción de NAF requerida (MM$)"], 1000 - 1100 / 1.5, places=6)
+        adj = an.required_adjustment(150.0, 1100.0, 1000.0)
+        self.assertAlmostEqual(adj["delta_num"], 400.0, places=6)
 
-        # Verificar Bonos Soberanos: 153k vs 170k (-17k)
-        sob_row = df_det_res[df_det_res['subcategoria'] == "Bonos Soberanos Extranjeros"].iloc[0]
-        self.assertEqual(sob_row['monto_ponderado'], 153000.0)
-        self.assertEqual(sob_row['monto_ponderado_ant'], 170000.0)
-        self.assertEqual(sob_row['delta_ponderado'], -17000.0)
-        self.assertAlmostEqual(sob_row['delta_pct'], -10.0, places=2)
+    def test_alert_statistics_streaks(self):
+        h = pd.DataFrame({"fecha": pd.date_range("2025-01-01", periods=6), "lcr": [130, 115, 118, 125, 119, 117],
+                          "alac": 1.0, "naf": 1.0})
+        s = an.alert_statistics(h, an.LCR, self.u).set_index("Tipo")
+        self.assertEqual(s.loc["Interno: alerta", "Días consecutivos actuales bajo el umbral"], 2)
+        self.assertEqual(s.loc["Interno: alerta", "Racha máxima (días)"], 2)
+        self.assertEqual(s.loc["Interno: alerta", "Días totales bajo el umbral"], 4)
 
-        # Top Drivers: alza principal debe ser Banco Central
-        top_alzas = metadata["top_alzas"]
-        self.assertEqual(len(top_alzas), 1)
-        self.assertEqual(top_alzas.iloc[0]['subcategoria'], "Depósitos en Banco Central")
+    def test_forecast_and_backtest(self):
+        f = an.forecast(self.hist.set_index("fecha")["lcr"], 30, "holt")
+        self.assertEqual(len(f), 30)
+        self.assertTrue((f["upper"] >= f["lower"]).all())
+        metrics, det = an.backtest(self.hist.set_index("fecha")["lcr"], horizon=10, n_origins=5)
+        self.assertEqual(set(metrics["metodo"]), set(an.METHODS))
+        self.assertTrue((metrics["RMSE (pp)"].diff().dropna() >= 0).all())  # ordenado por RMSE
 
-        # Top Drivers: baja principal debe ser Soberanos
-        top_bajas = metadata["top_bajas"]
-        self.assertEqual(len(top_bajas), 1)
-        self.assertEqual(top_bajas.iloc[0]['subcategoria'], "Bonos Soberanos Extranjeros")
+    def test_threshold_crossing_labels(self):
+        proj = pd.DataFrame({"fecha": pd.date_range("2025-01-01", periods=3), "pred": [125.0, 119.0, 118.0]})
+        self.assertEqual(an.threshold_crossing(proj, 130.0, 120.0), "02-01-2025")
+        self.assertEqual(an.threshold_crossing(proj, 110.0, 120.0), "Ya bajo el umbral")
+        self.assertEqual(an.threshold_crossing(proj, 130.0, 100.0), "No cruza")
 
-    def test_waterfall_attribution_invariant(self):
-        """Verifica que la atribución Waterfall sume exactamente el cambio total del ratio."""
-        res = compute_waterfall_attribution(num_0=1200000.0, den_0=1000000.0, num_1=1300000.0, den_1=1050000.0)
-        sum_effects = res["efecto_num"] + res["efecto_den"] + res["efecto_interaccion"]
-        self.assertAlmostEqual(res["delta_ratio"], sum_effects, places=4)
+    def test_data_quality_detects_broken_detail(self):
+        ok = an.data_quality(self.hist, self.det, an.LCR)
+        self.assertFalse((ok["Resultado"] == "ERROR").any())
+        broken = self.det.copy()
+        broken.loc[broken.index[-1], "monto_ponderado"] += 50.0
+        bad = an.data_quality(self.hist, broken, an.LCR).set_index("Control")
+        self.assertEqual(bad.loc["Detalle cuadra con totales", "Resultado"], "ERROR")
 
-    def test_multithreshold_buffers(self):
-        """Verifica el cálculo de distancias y holguras monetarias frente a 100%, 120%, 150%."""
-        df_buf = calculate_multithreshold_buffers(
-            ratio_val=130.0,
-            num_val=1300000.0,
-            den_val=1000000.0,
-            thresholds=[150.0, 120.0, 100.0],
-            labels=["Apetito de Riesgo", "Alerta Interna", "Mínimo CMF"]
-        )
-        self.assertEqual(len(df_buf), 3)
-        cmf_row = df_buf[df_buf["Umbral (%)"] == "100%"].iloc[0]
-        self.assertEqual(cmf_row["Distancia (pp)"], 30.0)
-        self.assertEqual(cmf_row["Holgura Monetaria (MM$)"], 300000.0)
-        self.assertEqual(cmf_row["Estado"], "CUMPLE")
+    def test_concentration_hhi(self):
+        cc = an.concentration(self.det, "ALAC", self.hist["fecha"].max())
+        shares = cc["tabla"]["participacion"]
+        self.assertAlmostEqual(cc["hhi"], float((shares ** 2).sum()), places=6)
+        self.assertAlmostEqual(shares.sum(), 100.0, places=6)
 
-    def test_pdf_generation_format_and_integrity(self):
-        """Verifica que el informe ejecutivo en PDF se genere correctamente con cabecera %PDF."""
-        kpis_dummy = {
-            "ratio_actual": 126.2, "ratio_anterior": 125.0, "delta_ratio": 1.2,
-            "num_actual": 1262000.0, "den_actual": 1000000.0, "holgura_monto": 262000.0
-        }
-        df_buf = calculate_multithreshold_buffers(126.2, 1262000.0, 1000000.0, [150.0, 120.0, 100.0], ["Apetito", "Alerta", "Mínimo CMF"])
-        pdf_bytes = pdf_generator.generate_executive_pdf_report(
-            kpis_lcr=kpis_dummy,
-            kpis_nsfr=kpis_dummy,
-            df_buffers_lcr=df_buf,
-            df_buffers_nsfr=df_buf,
-            top_drivers_lcr=[],
-            top_drivers_nsfr=[],
-            stress_results={"scenarios": [{"nombre": "Base", "lcr": 126.2, "delta_lcr": 0.0, "nsfr": 115.0, "delta_nsfr": 0.0, "diag": "Normal"}]},
-            projection_summary={"horizonte_dias": 30, "metodo": "Holt", "lcr_pred": 127.0, "lcr_lower": 120.0, "lcr_upper": 134.0, "nsfr_pred": 115.0, "nsfr_lower": 110.0, "nsfr_upper": 120.0},
-            fecha_corte_str="14-10-2026",
-            periodicidad="Diaria",
-            df_lcr_hist=self.df_hist,
-            df_nsfr_hist=self.df_hist.rename(columns={"lcr": "nsfr", "alac": "fed", "naf": "fer"})
-        )
-        self.assertIsInstance(pdf_bytes, bytes)
-        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
-        self.assertGreater(len(pdf_bytes), 15000)
+
+class PdfTests(unittest.TestCase):
+    def test_pdf_is_generated(self):
+        import pdf_generator
+        hist, det = _lcr_dataset()
+        nh = hist.rename(columns={"lcr": "nsfr", "alac": "fed", "naf": "fer"})
+        nd = det.copy()
+        nd["componente"] = np.where(nd["componente"] == "ALAC", "FED", "FER")
+        nd = nd[~nd["categoria"].str.startswith("Ajuste") & ~nd["subcategoria"].str.startswith("Ajuste")]
+        nd["monto_ponderado"] = nd["monto_ponderado"].abs()
+        sums = nd.groupby(["fecha", "componente"])["monto_ponderado"].sum().unstack()
+        nh = pd.DataFrame({"fecha": sums.index, "fed": sums["FED"].values, "fer": sums["FER"].values})
+        nh["nsfr"] = nh["fed"] / nh["fer"] * 100
+        q = pd.DataFrame([{"Indicador": "LCR", "Control": "x", "Resultado": "OK", "Detalle": "ok"}])
+        pdf = pdf_generator.build_report(hist, det, nh, nd, hist["fecha"].max(), "Mensual", 6, ["Adverso", "Severo"], 30,
+                                         an.umbrales_lcr(), an.umbrales_nsfr(), pd.DataFrame(), "", q, "test")
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertGreater(len(pdf), 20_000)
 
 
 if __name__ == "__main__":
